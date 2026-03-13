@@ -1,2 +1,7 @@
 __pycache__
+test/experiments/**/results/# Local build artifacts
+src/python/_bindings*.so
+src/python/libquake_c.so
+
+# Experiment outputs
 test/experiments/**/results/
