@@ -236,6 +236,10 @@ PYBIND11_MODULE(_bindings, m) {
              (std::string("Radius for local partition refinement. default = ") + std::to_string(DEFAULT_REFINEMENT_RADIUS)).c_str())
         .def_readwrite("refinement_iterations", &MaintenancePolicyParams::refinement_iterations,
              (std::string("Number of refinement iterations. default = ") + std::to_string(DEFAULT_REFINEMENT_ITERATIONS)).c_str())
+
+        .def_readwrite("refinement_size_threshold", &MaintenancePolicyParams::refinement_size_threshold,
+               "Only refine partitions whose size is at least this threshold. -1 disables filtering.")
+
         .def_readwrite("min_partition_size", &MaintenancePolicyParams::min_partition_size,
              (std::string("Minimum allowed partition size. default = ") + std::to_string(DEFAULT_MIN_PARTITION_SIZE)).c_str())
         .def_readwrite("max_partition_size", &MaintenancePolicyParams::max_partition_size,
@@ -257,6 +261,7 @@ PYBIND11_MODULE(_bindings, m) {
             oss << "\"window_size\": " << m.window_size << ", ";
             oss << "\"refinement_radius\": " << m.refinement_radius << ", ";
             oss << "\"refinement_iterations\": " << m.refinement_iterations << ", ";
+            oss << "\"refinement_size_threshold\": " << m.refinement_size_threshold << ", ";
             oss << "\"min_partition_size\": " << m.min_partition_size << ", ";
             oss << "\"alpha\": " << m.alpha << ", ";
             oss << "\"enable_split_rejection\": " << (m.enable_split_rejection ? "true" : "false") << ", ";

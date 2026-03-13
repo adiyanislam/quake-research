@@ -229,5 +229,31 @@ void MaintenancePolicy::local_refinement(const torch::Tensor &partition_ids) {
     auto result = partition_manager_->parent_->search(split_centroids, search_params);
     Tensor refine_ids = std::get<0>(torch::_unique(result->ids));
     refine_ids = refine_ids.masked_select(refine_ids != -1);
+
+    // Selective refinement: only refine partitions above a size threshold.
+    if (params_->refinement_size_threshold > 0 && refine_ids.numel() > 0) {
+        std::vector<int64_t> kept_ids;
+
+        Tensor refine_ids_cpu = refine_ids.to(torch::kCPU);
+        auto refine_ids_acc = refine_ids_cpu.accessor<int64_t, 1>();
+
+        for (int64_t i = 0; i < refine_ids_cpu.size(0); i++) {
+            int64_t pid = refine_ids_acc[i];
+            int64_t part_size = partition_manager_->get_partition_size(pid);
+
+            if (part_size >= params_->refinement_size_threshold) {
+                kept_ids.push_back(pid);
+            }
+        }
+
+        if (kept_ids.empty()) {
+            return;
+        }
+
+        refine_ids = torch::tensor(
+            kept_ids,
+            torch::TensorOptions().dtype(torch::kInt64).device(partition_ids.device()));
+    }
+
     partition_manager_->refine_partitions(refine_ids, params_->refinement_iterations);
 }

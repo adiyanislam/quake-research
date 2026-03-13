@@ -87,7 +87,6 @@ constexpr bool DEFAULT_ENABLE_SPLIT_REJECTION = true;  ///< Default flag to enab
 constexpr bool DEFAULT_ENABLE_DELETE_REJECTION = true; ///< Default flag to enable rejection of deletions.
 constexpr float DEFAULT_DELETE_THRESHOLD_NS = 100.0f;   ///< Default threshold in nanoseconds for deletion decisions.
 constexpr float DEFAULT_SPLIT_THRESHOLD_NS = 100.0f;    ///< Default threshold in nanoseconds for split decisions.
-
 const vector<int> DEFAULT_LATENCY_ESTIMATOR_RANGE_N = {1, 2, 4, 16, 64, 256, 1024, 4096, 16384, 65536};   ///< Default range of n values for latency estimator.
 const vector<int> DEFAULT_LATENCY_ESTIMATOR_RANGE_K = {1, 4, 16, 64, 256};                                ///< Default range of k values for latency estimator.
 constexpr int DEFAULT_LATENCY_ESTIMATOR_NTRIALS = 5;                                                          ///< Default number of trials for latency estimator.
@@ -104,6 +103,7 @@ struct MaintenancePolicyParams {
     float alpha = DEFAULT_ALPHA;
     bool enable_split_rejection = DEFAULT_ENABLE_SPLIT_REJECTION;
     bool enable_delete_rejection = DEFAULT_ENABLE_DELETE_REJECTION;
+    int refinement_size_threshold = -1;
 
     float delete_threshold_ns = DEFAULT_DELETE_THRESHOLD_NS;
     float split_threshold_ns = DEFAULT_SPLIT_THRESHOLD_NS;
