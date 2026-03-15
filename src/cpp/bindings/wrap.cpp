@@ -254,6 +254,8 @@ PYBIND11_MODULE(_bindings, m) {
              (std::string("Delete threshold (ns). default = ") + std::to_string(DEFAULT_DELETE_THRESHOLD_NS)).c_str())
         .def_readwrite("split_threshold_ns", &MaintenancePolicyParams::split_threshold_ns,
              (std::string("Split threshold (ns). default = ") + std::to_string(DEFAULT_SPLIT_THRESHOLD_NS)).c_str())
+        .def_readwrite("refinement_max_candidates", &MaintenancePolicyParams::refinement_max_candidates,
+               "Maximum number of candidate partitions to refine. -1 disables capping.")
         .def("__repr__", [](const MaintenancePolicyParams &m) {
             std::ostringstream oss;
             oss << "{";
@@ -262,6 +264,7 @@ PYBIND11_MODULE(_bindings, m) {
             oss << "\"refinement_radius\": " << m.refinement_radius << ", ";
             oss << "\"refinement_iterations\": " << m.refinement_iterations << ", ";
             oss << "\"refinement_size_threshold\": " << m.refinement_size_threshold << ", ";
+            oss << "\"refinement_max_candidates\": " << m.refinement_max_candidates << ", ";
             oss << "\"min_partition_size\": " << m.min_partition_size << ", ";
             oss << "\"alpha\": " << m.alpha << ", ";
             oss << "\"enable_split_rejection\": " << (m.enable_split_rejection ? "true" : "false") << ", ";

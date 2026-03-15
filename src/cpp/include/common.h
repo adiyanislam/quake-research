@@ -103,7 +103,9 @@ struct MaintenancePolicyParams {
     float alpha = DEFAULT_ALPHA;
     bool enable_split_rejection = DEFAULT_ENABLE_SPLIT_REJECTION;
     bool enable_delete_rejection = DEFAULT_ENABLE_DELETE_REJECTION;
+
     int refinement_size_threshold = -1;
+    int refinement_max_candidates = -1;
 
     float delete_threshold_ns = DEFAULT_DELETE_THRESHOLD_NS;
     float split_threshold_ns = DEFAULT_SPLIT_THRESHOLD_NS;
