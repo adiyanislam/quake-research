@@ -1,0 +1,134 @@
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  recall_target: 0.9
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+  seed: 9299
+
+indexes:
+  - name: Quake
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  - name: Quake-NoRefine-Split240
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Quake-Split240-Iter2-Refine50-All
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_distance_threshold: -1.0
+      refinement_size_threshold: -1
+      refinement_max_candidates: -1
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Quake-Split240-Iter2-Refine50-Dist0p1
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_distance_threshold: 0.1
+      refinement_size_threshold: -1
+      refinement_max_candidates: -1
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Quake-Split240-Iter2-Refine50-Dist0p25
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_distance_threshold: 0.25
+      refinement_size_threshold: -1
+      refinement_max_candidates: -1
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Quake-Split240-Iter2-Refine50-Dist0p5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_distance_threshold: 0.5
+      refinement_size_threshold: -1
+      refinement_max_candidates: -1
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Quake-Split240-Iter2-Refine50-Dist1p0
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_distance_threshold: 1.0
+      refinement_size_threshold: -1
+      refinement_max_candidates: -1
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Quake-Split240-Iter2-Refine50-Dist2p0
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_distance_threshold: 2.0
+      refinement_size_threshold: -1
+      refinement_max_candidates: -1
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake: {color: "#1f77b4", linestyle: "-", marker: "o"}
+    Quake-NoRefine-Split240: {color: "#111111", linestyle: "-", marker: "D"}
+    Quake-Split240-Iter2-Refine50-All: {color: "#9467bd", linestyle: "-", marker: "^"}
+    Quake-Split240-Iter2-Refine50-Dist0p1: {color: "#2ca02c", linestyle: "-", marker: "s"}
+    Quake-Split240-Iter2-Refine50-Dist0p25: {color: "#17becf", linestyle: "-", marker: "P"}
+    Quake-Split240-Iter2-Refine50-Dist0p5: {color: "#ff7f0e", linestyle: "-", marker: "X"}
+    Quake-Split240-Iter2-Refine50-Dist1p0: {color: "#d62728", linestyle: "-", marker: "v"}
+    Quake-Split240-Iter2-Refine50-Dist2p0: {color: "#8c564b", linestyle: "-", marker: "<"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true

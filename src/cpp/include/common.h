@@ -106,6 +106,10 @@ struct MaintenancePolicyParams {
 
     int refinement_size_threshold = -1;
     int refinement_max_candidates = -1;
+    int refinement_candidates_per_split = -1;
+    float refinement_distance_threshold = -1.0f;
+    int refinement_top_k_hits = -1;
+    int refinement_top_k_score = -1;
 
     float delete_threshold_ns = DEFAULT_DELETE_THRESHOLD_NS;
     float split_threshold_ns = DEFAULT_SPLIT_THRESHOLD_NS;

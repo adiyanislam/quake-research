@@ -9,6 +9,7 @@
 
 #include <common.h>
 #include <dynamic_inverted_list.h>
+#include <unordered_map>
 
 class QuakeIndex;
 
@@ -32,6 +33,12 @@ public:
     bool check_uniques_ = false; ///< If true, check that vector IDs are unique and don't already exist in the index.
 
     std::set<int64_t> resident_ids_; ///< Set of partition IDs.
+    std::unordered_map<int64_t, int64_t> mutations_since_refinement_;
+
+    void increment_partition_mutation_count(int64_t partition_id, int64_t delta = 1);
+    int64_t get_partition_mutation_count(int64_t partition_id) const;
+    void reset_partition_mutation_count(int64_t partition_id);
+    void reset_partition_mutation_counts(const Tensor& partition_ids);
 
     /**
      * @brief Constructor for PartitionManager.

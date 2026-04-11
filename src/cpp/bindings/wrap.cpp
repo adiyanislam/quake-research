@@ -239,6 +239,14 @@ PYBIND11_MODULE(_bindings, m) {
 
         .def_readwrite("refinement_size_threshold", &MaintenancePolicyParams::refinement_size_threshold,
                "Only refine partitions whose size is at least this threshold. -1 disables filtering.")
+        .def_readwrite("refinement_candidates_per_split", &MaintenancePolicyParams::refinement_candidates_per_split,
+               "Maximum number of candidate partitions to keep per split centroid. -1 disables per-split capping.")
+        .def_readwrite("refinement_distance_threshold", &MaintenancePolicyParams::refinement_distance_threshold,
+               "Only refine candidate partitions whose minimum distance to any split centroid is below this threshold. -1 disables filtering.")
+        .def_readwrite("refinement_top_k_hits", &MaintenancePolicyParams::refinement_top_k_hits,
+               "Refine only the top-K candidate partitions ranked by hit count. -1 disables hit-based capping.")
+        .def_readwrite("refinement_top_k_score", &MaintenancePolicyParams::refinement_top_k_score,
+               "Refine only the top-K candidate partitions ranked by (hits + 1) * mutations_since_refinement. -1 disables combined-score capping.")
 
         .def_readwrite("min_partition_size", &MaintenancePolicyParams::min_partition_size,
              (std::string("Minimum allowed partition size. default = ") + std::to_string(DEFAULT_MIN_PARTITION_SIZE)).c_str())
@@ -265,6 +273,10 @@ PYBIND11_MODULE(_bindings, m) {
             oss << "\"refinement_iterations\": " << m.refinement_iterations << ", ";
             oss << "\"refinement_size_threshold\": " << m.refinement_size_threshold << ", ";
             oss << "\"refinement_max_candidates\": " << m.refinement_max_candidates << ", ";
+            oss << "\"refinement_candidates_per_split\": " << m.refinement_candidates_per_split << ", ";
+            oss << "\"refinement_distance_threshold\": " << m.refinement_distance_threshold << ", ";
+            oss << "\"refinement_top_k_hits\": " << m.refinement_top_k_hits << ", ";
+            oss << "\"refinement_top_k_score\": " << m.refinement_top_k_score << ", ";
             oss << "\"min_partition_size\": " << m.min_partition_size << ", ";
             oss << "\"alpha\": " << m.alpha << ", ";
             oss << "\"enable_split_rejection\": " << (m.enable_split_rejection ? "true" : "false") << ", ";

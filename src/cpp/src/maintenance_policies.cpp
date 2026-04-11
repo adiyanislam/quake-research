@@ -8,6 +8,8 @@
 
 #include <unordered_set>
 #include <vector>
+#include <unordered_map>
+#include <algorithm>
 
 using std::chrono::steady_clock;
 using std::chrono::microseconds;
@@ -230,26 +232,53 @@ void MaintenancePolicy::local_refinement(const torch::Tensor &partition_ids) {
 
     auto result = partition_manager_->parent_->search(split_centroids, search_params);
 
-    // Build candidate refine_ids in first-seen order from search results.
-    // This lets us optionally cap the number of refined candidate partitions.
-    std::vector<int64_t> candidate_ids;
-    std::unordered_set<int64_t> seen;
+    // Track minimum distance from any split centroid to each candidate partition.
+    std::unordered_map<int64_t, float> min_dist_by_pid;
 
-    Tensor result_ids_cpu = result->ids.to(torch::kCPU).contiguous().view(-1);
-    auto result_ids_acc = result_ids_cpu.accessor<int64_t, 1>();
+    Tensor result_ids_cpu = result->ids.to(torch::kCPU).contiguous();
+    Tensor result_dist_cpu = result->distances.to(torch::kCPU).contiguous();
 
-    for (int64_t i = 0; i < result_ids_cpu.size(0); i++) {
-        int64_t pid = result_ids_acc[i];
-        if (pid == -1) {
-            continue;
+    auto result_ids_acc = result_ids_cpu.accessor<int64_t, 2>();
+    auto result_dist_acc = result_dist_cpu.accessor<float, 2>();
+
+    int64_t num_rows = result_ids_cpu.size(0);
+    int64_t num_cols = result_ids_cpu.size(1);
+
+    for (int64_t r = 0; r < num_rows; r++) {
+        for (int64_t c = 0; c < num_cols; c++) {
+            int64_t pid = result_ids_acc[r][c];
+            if (pid == -1) {
+                continue;
+            }
+
+            float dist = result_dist_acc[r][c];
+            auto it = min_dist_by_pid.find(pid);
+            if (it == min_dist_by_pid.end() || dist < it->second) {
+                min_dist_by_pid[pid] = dist;
+            }
         }
-        if (seen.insert(pid).second) {
+    }
+
+    std::vector<int64_t> candidate_ids;
+    candidate_ids.reserve(min_dist_by_pid.size());
+
+    for (const auto& kv : min_dist_by_pid) {
+        int64_t pid = kv.first;
+        float dist = kv.second;
+
+        // Optional distance-aware filtering
+        if (params_->refinement_distance_threshold < 0.0f ||
+            dist <= params_->refinement_distance_threshold) {
             candidate_ids.push_back(pid);
         }
     }
 
-    // Optional: selective refinement by partition size.
-    if (params_->refinement_size_threshold > 0 && !candidate_ids.empty()) {
+    if (candidate_ids.empty()) {
+        return;
+    }
+
+    // Optional size-based filtering
+    if (params_->refinement_size_threshold > 0) {
         std::vector<int64_t> kept_ids;
         kept_ids.reserve(candidate_ids.size());
 
@@ -263,7 +292,93 @@ void MaintenancePolicy::local_refinement(const torch::Tensor &partition_ids) {
         candidate_ids = std::move(kept_ids);
     }
 
-    // Optional: cap the number of refined candidate partitions.
+    if (candidate_ids.empty()) {
+        return;
+    }
+
+    std::unordered_map<int64_t, int64_t> aggregated_hits;
+    std::vector<std::vector<int64_t>> per_query_hits = hit_count_tracker_->get_per_query_hits();
+
+    for (const auto& query_hits : per_query_hits) {
+        for (int64_t pid : query_hits) {
+            aggregated_hits[pid]++;
+        }
+    }
+
+    // Combined score ranking: (hits + 1) * mutations_since_refinement
+    if (params_->refinement_top_k_score > 0) {
+        std::vector<std::pair<int64_t, double>> scored_candidates;
+        scored_candidates.reserve(candidate_ids.size());
+
+        for (int64_t pid : candidate_ids) {
+            int64_t hits = 0;
+            auto hit_it = aggregated_hits.find(pid);
+            if (hit_it != aggregated_hits.end()) {
+                hits = hit_it->second;
+            }
+
+            int64_t mutations = partition_manager_->get_partition_mutation_count(pid);
+            double score = static_cast<double>(hits + 1) * static_cast<double>(mutations);
+
+            scored_candidates.emplace_back(pid, score);
+        }
+
+        std::sort(scored_candidates.begin(), scored_candidates.end(),
+                  [](const auto& a, const auto& b) {
+                      if (a.second != b.second) {
+                          return a.second > b.second;
+                      }
+                      return a.first < b.first;
+                  });
+
+        std::vector<int64_t> top_ids;
+        int64_t limit = std::min<int64_t>(
+            params_->refinement_top_k_score,
+            static_cast<int64_t>(scored_candidates.size()));
+        top_ids.reserve(limit);
+
+        for (int64_t i = 0; i < limit; i++) {
+            top_ids.push_back(scored_candidates[i].first);
+        }
+
+        candidate_ids = std::move(top_ids);
+
+    // Fallback: pure hit-based ranking
+    } else if (params_->refinement_top_k_hits > 0) {
+        std::vector<std::pair<int64_t, int64_t>> scored_candidates;
+        scored_candidates.reserve(candidate_ids.size());
+
+        for (int64_t pid : candidate_ids) {
+            int64_t hits = 0;
+            auto it = aggregated_hits.find(pid);
+            if (it != aggregated_hits.end()) {
+                hits = it->second;
+            }
+            scored_candidates.emplace_back(pid, hits);
+        }
+
+        std::sort(scored_candidates.begin(), scored_candidates.end(),
+                  [](const auto& a, const auto& b) {
+                      if (a.second != b.second) {
+                          return a.second > b.second;  // higher hits first
+                      }
+                      return a.first < b.first;
+                  });
+
+        std::vector<int64_t> top_ids;
+        int64_t limit = std::min<int64_t>(
+            params_->refinement_top_k_hits,
+            static_cast<int64_t>(scored_candidates.size()));
+        top_ids.reserve(limit);
+
+        for (int64_t i = 0; i < limit; i++) {
+            top_ids.push_back(scored_candidates[i].first);
+        }
+
+        candidate_ids = std::move(top_ids);
+    }
+
+    // Optional fallback global cap after ranking/filtering.
     if (params_->refinement_max_candidates > 0 &&
         static_cast<int64_t>(candidate_ids.size()) > params_->refinement_max_candidates) {
         candidate_ids.resize(params_->refinement_max_candidates);

@@ -1,0 +1,92 @@
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  recall_target: 0.9
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+  seed: 9299
+
+indexes:
+  - name: Quake-Split240-Iter2-Refine50-All
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_hits: -1
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Hits60
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_hits: 60
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Hits70
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_hits: 70
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Hits80
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_hits: 80
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Hits90
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_hits: 90
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Hits100
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_hits: 100
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+overwrite:
+  workload: false
+  index: true
+  results: true

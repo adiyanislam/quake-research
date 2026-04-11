@@ -10,6 +10,7 @@
 #include "clustering.h"
 #include <stdexcept>
 #include <iostream>
+#include <algorithm>
 #include "quake_index.h"
 
 using std::runtime_error;
@@ -28,6 +29,34 @@ PartitionManager::PartitionManager() {
 
 PartitionManager::~PartitionManager() {
     // no special cleanup
+}
+
+void PartitionManager::increment_partition_mutation_count(int64_t partition_id, int64_t delta) {
+    mutations_since_refinement_[partition_id] += delta;
+}
+
+int64_t PartitionManager::get_partition_mutation_count(int64_t partition_id) const {
+    auto it = mutations_since_refinement_.find(partition_id);
+    if (it == mutations_since_refinement_.end()) {
+        return 0;
+    }
+    return it->second;
+}
+
+void PartitionManager::reset_partition_mutation_count(int64_t partition_id) {
+    mutations_since_refinement_[partition_id] = 0;
+}
+
+void PartitionManager::reset_partition_mutation_counts(const Tensor& partition_ids) {
+    if (!partition_ids.defined() || partition_ids.numel() == 0) {
+        return;
+    }
+
+    Tensor partition_ids_cpu = partition_ids.to(torch::kCPU).contiguous();
+    auto pids = partition_ids_cpu.accessor<int64_t, 1>();
+    for (int64_t i = 0; i < partition_ids_cpu.size(0); i++) {
+        mutations_since_refinement_[pids[i]] = 0;
+    }
 }
 
 void PartitionManager::init_partitions(
@@ -67,7 +96,9 @@ void PartitionManager::init_partitions(
     // Add an empty list for each partition ID
     auto partition_ids_accessor = clustering->partition_ids.accessor<int64_t, 1>();
     for (int64_t i = 0; i < nlist; i++) {
-        partition_store_->add_list(partition_ids_accessor[i]);
+        int64_t partition_id = partition_ids_accessor[i];
+        partition_store_->add_list(partition_id);
+        mutations_since_refinement_[partition_id] = 0;
         if (debug_) {
             std::cout << "[PartitionManager] init_partitions: Added empty list for partition " << i << std::endl;
         }
@@ -105,6 +136,7 @@ void PartitionManager::init_partitions(
                 id.data_ptr<int64_t>(),
                 as_uint8_ptr(v)
             );
+            mutations_since_refinement_[partition_ids_accessor[i]] += static_cast<int64_t>(count);
             if (debug_) {
                 std::cout << "[PartitionManager] init_partitions: Added " << count
                           << " entries to partition " << partition_ids_accessor[i] << std::endl;
@@ -192,7 +224,6 @@ shared_ptr<ModifyTimingInfo> PartitionManager::add(
     auto e1 = std::chrono::high_resolution_clock::now();
     timing_info->input_validation_time_us = std::chrono::duration_cast<std::chrono::microseconds>(e1 - s1).count();
 
-
     //////////////////////////////////////////
     /// Determine partition assignments
     //////////////////////////////////////////
@@ -249,6 +280,8 @@ shared_ptr<ModifyTimingInfo> PartitionManager::add(
     auto id_accessor = vector_ids.accessor<int64_t, 1>();
     const uint8_t *code_ptr = as_uint8_ptr(vectors);
 
+    std::unordered_map<int64_t, int64_t> added_counts_by_pid;
+
     for (int64_t i = 0; i < n; i++) {
         int64_t pid = partition_ids_for_each[i];
 
@@ -267,7 +300,14 @@ shared_ptr<ModifyTimingInfo> PartitionManager::add(
             id_ptr + i,
             code_ptr + i * code_size_bytes
         );
+
+        added_counts_by_pid[pid]++;
     }
+
+    for (const auto& kv : added_counts_by_pid) {
+        increment_partition_mutation_count(kv.first, kv.second);
+    }
+
     auto e3 = std::chrono::high_resolution_clock::now();
     timing_info->modify_time_us = std::chrono::duration_cast<std::chrono::microseconds>(e3 - s3).count();
     return timing_info;
@@ -288,6 +328,11 @@ shared_ptr<ModifyTimingInfo> PartitionManager::remove(const Tensor &ids) {
             std::cout << "[PartitionManager] remove: No ids provided. Exiting." << std::endl;
         }
         return timing_info;
+    }
+
+    Tensor removed_vectors;
+    if (parent_ != nullptr && ids.size(0) > 0) {
+        removed_vectors = get(ids);
     }
 
     if (check_uniques_) {
@@ -321,7 +366,34 @@ shared_ptr<ModifyTimingInfo> PartitionManager::remove(const Tensor &ids) {
     timing_info->find_partition_time_us = std::chrono::duration_cast<std::chrono::microseconds>(e2 - s2).count();
 
     auto s3 = std::chrono::high_resolution_clock::now();
+
+    std::unordered_map<int64_t, int64_t> removed_counts_by_pid;
+    if (parent_ != nullptr && ids.size(0) > 0) {
+        auto search_params = make_shared<SearchParams>();
+        search_params->k = 1;
+        search_params->recall_target = .999;
+        if (ids.size(0) > 10) {
+            search_params->batched_scan = true;
+        }
+
+        auto parent_search_result = parent_->search(removed_vectors, search_params);
+        Tensor label_out = parent_search_result->ids.to(torch::kCPU).contiguous();
+        auto lbl_ptr = label_out.data_ptr<int64_t>();
+
+        for (int64_t i = 0; i < ids.size(0); i++) {
+            int64_t pid = lbl_ptr[i];
+            if (pid != -1) {
+                removed_counts_by_pid[pid]++;
+            }
+        }
+    }
+
     partition_store_->remove_vectors(to_remove);
+
+    for (const auto& kv : removed_counts_by_pid) {
+        increment_partition_mutation_count(kv.first, kv.second);
+    }
+
     if (debug_) {
         std::cout << "[PartitionManager] remove: Completed removal." << std::endl;
     }
@@ -351,7 +423,6 @@ Tensor PartitionManager::get(const Tensor &ids) {
 vector<float *> PartitionManager::get_vectors(vector<int64_t> ids) {
     return partition_store_->get_vectors_by_id(ids);
 }
-
 
 shared_ptr<Clustering> PartitionManager::select_partitions(const Tensor &select_ids, bool copy) {
     if (debug_) {
@@ -483,7 +554,8 @@ void PartitionManager::refine_partitions(Tensor partition_ids, int iterations) {
         index_partitions[i] = partition_store_->partitions_[pids[i]];
     }
 
-    std::tie(current_centroids, index_partitions) = kmeans_refine_partitions(current_centroids,
+    std::tie(current_centroids, index_partitions) = kmeans_refine_partitions(
+        current_centroids,
         index_partitions,
         parent_->metric_,
         iterations);
@@ -497,6 +569,7 @@ void PartitionManager::refine_partitions(Tensor partition_ids, int iterations) {
     }
 
     partition_store_->build_map();
+    reset_partition_mutation_counts(partition_ids);
 
     if (debug_) {
         std::cout << "[PartitionManager] refine_partitions: Completed refinement." << std::endl;
@@ -529,6 +602,10 @@ void PartitionManager::add_partitions(shared_ptr<Clustering> partitions) {
             partitions->vector_ids[i].data_ptr<int64_t>(),
             as_uint8_ptr(partitions->vectors[i])
         );
+
+        mutations_since_refinement_[list_no] = std::max<int64_t>(
+            1, static_cast<int64_t>(partitions->vectors[i].size(0)));
+
         if (debug_) {
             std::cout << "[PartitionManager] add_partitions: Added partition " << list_no
                       << " with " << partitions->vectors[i].size(0) << " vectors." << std::endl;
@@ -550,6 +627,7 @@ void PartitionManager::delete_partitions(const Tensor &partition_ids, bool reass
         for (int i = 0; i < partition_ids.size(0); i++) {
             int64_t list_no = partition_ids_accessor[i];
             partition_store_->remove_list(list_no);
+            mutations_since_refinement_.erase(list_no);
             if (debug_) {
                 std::cout << "[PartitionManager] delete_partitions: Removed partition " << list_no << std::endl;
             }
@@ -572,7 +650,6 @@ void PartitionManager::delete_partitions(const Tensor &partition_ids, bool reass
         throw runtime_error("Index is not partitioned");
     }
 }
-
 
 void PartitionManager::distribute_partitions(int num_workers, bool use_numa) {
     if (debug_) {
@@ -629,11 +706,11 @@ void PartitionManager::set_partition_core_id(int64_t partition_id, int core_id, 
     partition_store_->partitions_[partition_id]->set_core_id(core_id);
     int node = cpu_numa_node(core_id);
 
-    #ifdef QUAKE_USE_NUMA
+#ifdef QUAKE_USE_NUMA
     if (use_numa) {
         partition_store_->partitions_[partition_id]->set_numa_node(node);
     }
-    #endif
+#endif
 }
 
 int PartitionManager::get_partition_core_id(int64_t partition_id) {
@@ -725,7 +802,6 @@ int64_t PartitionManager::get_partition_size(int64_t partition_id) {
     return partition_store_->list_size(partition_id);
 }
 
-
 bool PartitionManager::validate() {
     if (debug_) {
         std::cout << "[PartitionManager] validate: Validating partitions." << std::endl;
@@ -735,7 +811,6 @@ bool PartitionManager::validate() {
     }
     return true;
 }
-
 
 void PartitionManager::save(const string &path) {
     if (debug_) {
@@ -766,6 +841,17 @@ void PartitionManager::load(const string &path) {
         auto ids_a = ids.accessor<int64_t, 1>();
         for (int i = 0; i < ids.size(0); i++) {
             resident_ids_.insert(ids_a[i]);
+        }
+    }
+
+    Tensor partition_ids = get_partition_ids();
+    if (partition_ids.defined() && partition_ids.numel() > 0) {
+        Tensor partition_ids_cpu = partition_ids.to(torch::kCPU).contiguous();
+        auto pids = partition_ids_cpu.accessor<int64_t, 1>();
+        for (int64_t i = 0; i < partition_ids_cpu.size(0); i++) {
+            if (mutations_since_refinement_.find(pids[i]) == mutations_since_refinement_.end()) {
+                mutations_since_refinement_[pids[i]] = 0;
+            }
         }
     }
 
