@@ -247,6 +247,8 @@ PYBIND11_MODULE(_bindings, m) {
                "Refine only the top-K candidate partitions ranked by hit count. -1 disables hit-based capping.")
         .def_readwrite("refinement_top_k_score", &MaintenancePolicyParams::refinement_top_k_score,
                "Refine only the top-K candidate partitions ranked by (hits + 1) * mutations_since_refinement. -1 disables combined-score capping.")
+        .def_readwrite("refinement_normalize_mutations", &MaintenancePolicyParams::refinement_normalize_mutations,
+               "If true, normalize mutations by partition size when scoring: staleness = mutations / size. Default false.")
 
         .def_readwrite("min_partition_size", &MaintenancePolicyParams::min_partition_size,
              (std::string("Minimum allowed partition size. default = ") + std::to_string(DEFAULT_MIN_PARTITION_SIZE)).c_str())
@@ -277,6 +279,7 @@ PYBIND11_MODULE(_bindings, m) {
             oss << "\"refinement_distance_threshold\": " << m.refinement_distance_threshold << ", ";
             oss << "\"refinement_top_k_hits\": " << m.refinement_top_k_hits << ", ";
             oss << "\"refinement_top_k_score\": " << m.refinement_top_k_score << ", ";
+            oss << "\"refinement_normalize_mutations\": " << (m.refinement_normalize_mutations ? "true" : "false") << ", ";
             oss << "\"min_partition_size\": " << m.min_partition_size << ", ";
             oss << "\"alpha\": " << m.alpha << ", ";
             oss << "\"enable_split_rejection\": " << (m.enable_split_rejection ? "true" : "false") << ", ";

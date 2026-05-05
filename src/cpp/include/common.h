@@ -110,6 +110,7 @@ struct MaintenancePolicyParams {
     float refinement_distance_threshold = -1.0f;
     int refinement_top_k_hits = -1;
     int refinement_top_k_score = -1;
+    bool refinement_normalize_mutations = false; ///< If true, normalize mutations by partition size: staleness = mutations / size.
 
     float delete_threshold_ns = DEFAULT_DELETE_THRESHOLD_NS;
     float split_threshold_ns = DEFAULT_SPLIT_THRESHOLD_NS;

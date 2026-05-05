@@ -244,17 +244,30 @@ void MaintenancePolicy::local_refinement(const torch::Tensor &partition_ids) {
     int64_t num_rows = result_ids_cpu.size(0);
     int64_t num_cols = result_ids_cpu.size(1);
 
+    // Build per-split candidate lists; optionally cap per split before global union.
     for (int64_t r = 0; r < num_rows; r++) {
+        std::vector<std::pair<int64_t, float>> row_candidates;
         for (int64_t c = 0; c < num_cols; c++) {
             int64_t pid = result_ids_acc[r][c];
             if (pid == -1) {
                 continue;
             }
+            row_candidates.emplace_back(pid, result_dist_acc[r][c]);
+        }
 
-            float dist = result_dist_acc[r][c];
-            auto it = min_dist_by_pid.find(pid);
-            if (it == min_dist_by_pid.end() || dist < it->second) {
-                min_dist_by_pid[pid] = dist;
+        // Per-split cap: keep only the closest candidates for this split centroid.
+        if (params_->refinement_candidates_per_split > 0 &&
+            static_cast<int64_t>(row_candidates.size()) > params_->refinement_candidates_per_split) {
+            std::sort(row_candidates.begin(), row_candidates.end(),
+                      [](const auto& a, const auto& b) { return a.second < b.second; });
+            row_candidates.resize(params_->refinement_candidates_per_split);
+        }
+
+        // Union into global min-dist map.
+        for (const auto& kv : row_candidates) {
+            auto it = min_dist_by_pid.find(kv.first);
+            if (it == min_dist_by_pid.end() || kv.second < it->second) {
+                min_dist_by_pid[kv.first] = kv.second;
             }
         }
     }
@@ -318,7 +331,16 @@ void MaintenancePolicy::local_refinement(const torch::Tensor &partition_ids) {
             }
 
             int64_t mutations = partition_manager_->get_partition_mutation_count(pid);
-            double score = static_cast<double>(hits + 1) * static_cast<double>(mutations);
+            double staleness;
+            if (params_->refinement_normalize_mutations) {
+                int64_t size = partition_manager_->get_partition_size(pid);
+                staleness = (size > 0)
+                    ? static_cast<double>(mutations) / static_cast<double>(size)
+                    : static_cast<double>(mutations);
+            } else {
+                staleness = static_cast<double>(mutations);
+            }
+            double score = static_cast<double>(hits + 1) * staleness;
 
             scored_candidates.emplace_back(pid, score);
         }
