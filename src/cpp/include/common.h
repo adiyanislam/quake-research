@@ -111,6 +111,8 @@ struct MaintenancePolicyParams {
     int refinement_top_k_hits = -1;
     int refinement_top_k_score = -1;
     bool refinement_normalize_mutations = false; ///< If true, normalize mutations by partition size: staleness = mutations / size.
+    double refinement_score_beta = 1.0;  ///< Exponent on (hits + 1) in score formula. Default 1.0 (linear).
+    double refinement_score_gamma = 1.0; ///< Exponent on staleness in score formula. Default 1.0 (linear).
 
     float delete_threshold_ns = DEFAULT_DELETE_THRESHOLD_NS;
     float split_threshold_ns = DEFAULT_SPLIT_THRESHOLD_NS;

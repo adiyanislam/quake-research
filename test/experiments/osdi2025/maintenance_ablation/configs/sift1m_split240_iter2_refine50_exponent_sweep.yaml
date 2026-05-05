@@ -1,0 +1,188 @@
+# Beta/Gamma Exponent Scoring Sweep
+# Tests the general score family S_{beta,gamma}(p) = (h_p + 1)^beta * staleness^gamma
+# against the current linear baseline (beta=1, gamma=1).
+#
+# Configs 2-4: linear baselines that reproduce best known operating points.
+# Configs 5-7: vary exponents on raw mutations (gamma=0.5 or beta=0.5) at K=70.
+# Configs 8-10: same exponent variants combined with density normalization at K=70.
+#
+# Workload matches the existing split240/iter2/refine50 series for comparability.
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  recall_target: 0.9
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+  seed: 9299
+
+indexes:
+  # ── Baseline ────────────────────────────────────────────────────────────────
+  - name: Quake
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Linear baselines (beta=1, gamma=1) ──────────────────────────────────────
+  - name: Score50-Raw-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 50
+      refinement_normalize_mutations: false
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Density50-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 50
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Density70-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Exponent variants on raw mutations, K=70 ────────────────────────────────
+  - name: Raw70-SqrtMut
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: false
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Raw70-SqrtHits
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: false
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Raw70-SqrtBoth
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: false
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Exponent variants combined with density normalization, K=70 ─────────────
+  - name: Density70-SqrtMut
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Density70-SqrtHits
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Density70-SqrtBoth
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake:               {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Score50-Raw-Linear:  {color: "#9467bd", linestyle: "-",  marker: "^"}
+    Density50-Linear:    {color: "#2ca02c", linestyle: "-",  marker: "s"}
+    Density70-Linear:    {color: "#17becf", linestyle: "-",  marker: "P"}
+    Raw70-SqrtMut:       {color: "#ff7f0e", linestyle: "--", marker: "X"}
+    Raw70-SqrtHits:      {color: "#8c564b", linestyle: "--", marker: "D"}
+    Raw70-SqrtBoth:      {color: "#e377c2", linestyle: "--", marker: "v"}
+    Density70-SqrtMut:   {color: "#bcbd22", linestyle: ":",  marker: "X"}
+    Density70-SqrtHits:  {color: "#7f7f7f", linestyle: ":",  marker: "D"}
+    Density70-SqrtBoth:  {color: "#d62728", linestyle: ":",  marker: "v"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true

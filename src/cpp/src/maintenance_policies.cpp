@@ -340,7 +340,8 @@ void MaintenancePolicy::local_refinement(const torch::Tensor &partition_ids) {
             } else {
                 staleness = static_cast<double>(mutations);
             }
-            double score = static_cast<double>(hits + 1) * staleness;
+            double score = std::pow(static_cast<double>(hits + 1), params_->refinement_score_beta)
+                         * std::pow(staleness, params_->refinement_score_gamma);
 
             scored_candidates.emplace_back(pid, score);
         }
