@@ -421,8 +421,12 @@ class WorkloadEvaluator:
             wrapper.save(idx_file)
             print(f"[{name}] stored → {idx_file}")
         else:
-            wrapper.load(idx_file,
-                         num_workers=build_params.get("num_workers", 0))
+            # QuakeWrapper.load accepts num_workers; other wrappers do not.
+            if isinstance(wrapper, QuakeWrapper):
+                wrapper.load(idx_file,
+                             num_workers=build_params.get("num_workers", 0))
+            else:
+                wrapper.load(str(idx_file))
             print(f"[{name}] loaded ← {idx_file}")
 
         if isinstance(wrapper, QuakeWrapper) and m_params:
@@ -528,10 +532,12 @@ class WorkloadEvaluator:
             maint_ms = nsplits = ndeletes = 0
             if do_maintenance:
                 mi = index.maintenance()
-                maint_ms = mi.total_time_us / 1e3
-                nsplits  = mi.n_splits
-                ndeletes = mi.n_deletes
-                totals["maintain"] += maint_ms
+                # Non-Quake indexes return None from maintenance().
+                if mi is not None:
+                    maint_ms = mi.total_time_us / 1e3
+                    nsplits  = mi.n_splits
+                    ndeletes = mi.n_deletes
+                    totals["maintain"] += maint_ms
 
             print(f" | lat {latency_ms:8.2f} ms"
                   f" | maint {maint_ms:7.2f} ms"

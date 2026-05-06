@@ -1,0 +1,140 @@
+# Baseline Comparison — LIRE and Faiss-IVF vs FlexiRefine
+# ─────────────────────────────────────────────────────────
+# Purpose:
+#   Compare Quake full-refinement and top FlexiRefine selective-refinement
+#   configs against two external baselines:
+#     LIRE-style  — Quake with size-based maintenance, no K-means refinement
+#     Faiss-IVF   — classic static IVF, no dynamic maintenance
+#
+# Baselines:
+#   1. Quake               — full cost-model maintenance + full refinement
+#   2. LIRE                — size-based partitioning, reassignment only
+#                            (approximates SPFresh/LIRE-style behavior;
+#                             uses Quake backend with refinement_iterations=0)
+#   3. Score50-Raw-Linear  — best raw-mutation FlexiRefine config (K=50)
+#   4. Density70-Linear    — recommended density-normalized default (K=70)
+#   5. D70-B0.5-G0.5       — lowest mean total time in 3-seed confirmation
+#   6. Faiss-IVF           — static IVF, trained once, no dynamic maintenance
+#                            (recall degrades under dynamic workload — expected)
+#
+# Seeds: [9299, 42, 12345] for mean ± std reporting
+#
+# Fairness notes:
+#   LIRE: same index structure as Quake; differs only in maintenance policy
+#   Faiss-IVF: nc=1000 to match Quake partition count; nprobe=100 for competitiveness
+#              Fixed centroids — quality degrades as workload evolves (expected behavior)
+#              do_maintenance is automatically set to False for FaissIVF index type
+#
+# Output:
+#   seed_9299/, seed_42/, seed_12345/   — per-seed results + plots
+#   multiseed_raw.csv                   — one row per (seed, index)
+#   multiseed_summary.csv               — mean ± std across seeds
+#   multiseed_summary.md                — human-readable table
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seeds: [9299, 42, 12345]
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Full-refinement baseline ────────────────────────────────────────────────
+  - name: Quake
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── LIRE-style baseline (size-based splits, no K-means refinement) ──────────
+  - name: LIRE
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_iterations: 0
+      max_partition_size: 2000
+
+  # ── Best raw-mutation FlexiRefine config ────────────────────────────────────
+  - name: Score50-Raw-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 50
+      refinement_normalize_mutations: false
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Recommended density-normalized default ──────────────────────────────────
+  - name: Density70-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Lowest mean total time from 3-seed confirmation ─────────────────────────
+  - name: D70-B0.5-G0.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Faiss-IVF static baseline ───────────────────────────────────────────────
+  # Note: index type "FaissIVF" → do_maintenance is automatically False.
+  # Centroids are fixed at build time; recall degrades as workload evolves.
+  # nprobe=100 (10% of 1000 partitions) for competitive initial recall.
+  - name: Faiss-IVF
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 100}
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake:            {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    LIRE:             {color: "#ffbb78", linestyle: "-",  marker: "P"}
+    Score50-Raw-Linear: {color: "#9467bd", linestyle: "-",  marker: "^"}
+    Density70-Linear: {color: "#17becf", linestyle: "-",  marker: "s"}
+    D70-B0.5-G0.5:    {color: "#2ca02c", linestyle: "-",  marker: "D"}
+    Faiss-IVF:        {color: "#d62728", linestyle: "--", marker: "X"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true

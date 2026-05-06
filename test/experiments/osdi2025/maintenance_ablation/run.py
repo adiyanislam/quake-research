@@ -36,8 +36,16 @@ from matplotlib.lines import Line2D
 # Common utilities
 import test.experiments.osdi2025.experiment_utils as common_utils
 
-# Quake specific imports
-from quake.index_wrappers.quake import QuakeWrapper # This experiment only uses QuakeWrapper
+# Index wrapper imports
+from quake.index_wrappers.quake import QuakeWrapper
+from quake.index_wrappers.faiss_ivf import FaissIVF
+
+# Module-level index class map — add new wrappers here as baselines are added.
+# do_maintenance is automatically disabled for non-Quake indexes (they return None).
+_INDEX_CLASS_MAP = {
+    "Quake":    QuakeWrapper,
+    "FaissIVF": FaissIVF,
+}
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)s | %(message)s")
@@ -457,8 +465,6 @@ def _run_single_seed(
     wl_cfg_for_seed = dict(cfg["workload_generator"])
     wl_cfg_for_seed["seed"] = seed
 
-    index_class_map = {"Quake": QuakeWrapper}
-
     # Phase 1 — workload generation
     if current_mode in {"build", "run"}:
         common_utils.generate_dynamic_workload(
@@ -471,13 +477,15 @@ def _run_single_seed(
     # Phase 2 — index evaluation
     if current_mode == "run":
         for index_conf in cfg.get("indexes", []):
+            # Only Quake indexes perform maintenance; others return None.
+            do_maint = (index_conf.get("index", "") == "Quake")
             common_utils.evaluate_index_on_dynamic_workload(
                 index_config=index_conf,
-                index_class_mapping=index_class_map,
+                index_class_mapping=_INDEX_CLASS_MAP,
                 workload_data_dir=seed_dir,
                 experiment_main_output_dir=seed_dir,
                 overwrite_idx_results=overwrite_results,
-                do_maintenance_flag=True,
+                do_maintenance_flag=do_maint,
             )
 
     # Phase 3 — per-seed plots and summary (inside seed_dir)
@@ -536,17 +544,16 @@ def run_experiment(cfg_path_str: str, output_dir_str: str) -> None:
     # --- Phase 2: Index Evaluation ---
     if current_mode == "run":
         log.info("Starting index evaluation phase...")
-        # For this specific experiment, the index class is always QuakeWrapper
-        index_class_map = {"Quake": QuakeWrapper}
-
         for index_conf in cfg.get("indexes", []):
+            # Only Quake indexes perform maintenance; others return None.
+            do_maint = (index_conf.get("index", "") == "Quake")
             common_utils.evaluate_index_on_dynamic_workload(
                 index_config=index_conf,
-                index_class_mapping=index_class_map,
-                workload_data_dir=workload_actual_dir, # Use the returned/set workload_actual_dir
+                index_class_mapping=_INDEX_CLASS_MAP,
+                workload_data_dir=workload_actual_dir,
                 experiment_main_output_dir=main_output_dir,
                 overwrite_idx_results=cfg["overwrite"].get("results", False),
-                do_maintenance_flag=True # This experiment always does maintenance
+                do_maintenance_flag=do_maint,
             )
 
     # --- Phase 3: Global Artifact Generation ---
