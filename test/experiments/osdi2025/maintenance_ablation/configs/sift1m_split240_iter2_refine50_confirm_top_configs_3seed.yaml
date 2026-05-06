@@ -1,0 +1,145 @@
+# Confirmation Sweep — Top FlexiRefine Configs, 3 Seeds
+#
+# Purpose:
+#   Compute mean ± std for Recall, Maintain, and Total across three
+#   independent workload seeds to verify that the density + gamma=0.5
+#   improvement is robust to K-means non-determinism and workload variation.
+#
+# Configs confirmed:
+#   1. Quake                 — full-refinement baseline
+#   2. Score50-Raw-Linear    — best prior raw-mutation config (B1.0 G1.0, K=50)
+#   3. Density70-Linear      — density baseline (B1.0 G1.0, K=70)
+#   4. D70-B0.5-G1.0         — best exponent-sweep result (SqrtHits + density)
+#   5. D70-B1.0-G0.5         — best grid result (SqrtMut-density, current best)
+#   6. D70-B0.5-G0.5         — competitive grid point (SqrtBoth + density)
+#
+# Seeds: 9299 (matches all prior runs), 42, 12345
+#
+# Output structure (produced by multi-seed runner):
+#   results/confirm_top.../
+#     seed_9299/  {runbook + per-index results + per-seed summary}
+#     seed_42/    {runbook + per-index results + per-seed summary}
+#     seed_12345/ {runbook + per-index results + per-seed summary}
+#     multiseed_raw.csv         — one row per (seed, index)
+#     multiseed_summary.csv     — one row per index, mean/std columns
+#     multiseed_summary.md      — human-readable mean ± std table
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seeds: [9299, 42, 12345]
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Full-refinement baseline ────────────────────────────────────────────────
+  - name: Quake
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Best prior raw-mutation operating point ─────────────────────────────────
+  - name: Score50-Raw-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 50
+      refinement_normalize_mutations: false
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Density linear baseline (B1.0, G1.0, density, K=70) ────────────────────
+  - name: Density70-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Best exponent-sweep result (B0.5, G1.0, density, K=70) ─────────────────
+  - name: D70-B0.5-G1.0
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Best grid result (B1.0, G0.5, density, K=70) ───────────────────────────
+  - name: D70-B1.0-G0.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Competitive grid point (B0.5, G0.5, density, K=70) ─────────────────────
+  - name: D70-B0.5-G0.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake:              {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Score50-Raw-Linear: {color: "#9467bd", linestyle: "-",  marker: "^"}
+    Density70-Linear:   {color: "#17becf", linestyle: "-",  marker: "P"}
+    D70-B0.5-G1.0:      {color: "#2ca02c", linestyle: "--", marker: "s"}
+    D70-B1.0-G0.5:      {color: "#d62728", linestyle: "--", marker: "D"}
+    D70-B0.5-G0.5:      {color: "#ff7f0e", linestyle: "--", marker: "X"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true

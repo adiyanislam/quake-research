@@ -9,6 +9,16 @@ It generates detailed reports including:
 2. A 9-panel unified plot comparing various metrics across configurations.
 3. A stacked bar chart breaking down cumulative time per operation type.
 4. A summary table (CSV and Markdown) of key performance indicators.
+
+Multi-seed support:
+If workload_generator.seeds (list) is present in the YAML, the experiment loops
+over each seed, generating a separate workload in main_output_dir/seed_{s}/ and
+evaluating all indexes against it.  After all seeds finish, aggregate mean±std
+tables are written to main_output_dir/multiseed_raw.csv,
+multiseed_summary.csv, and multiseed_summary.md.
+
+If only workload_generator.seed (int) is present, the experiment behaves exactly
+as before — no behaviour change.
 """
 from __future__ import annotations
 
@@ -42,6 +52,9 @@ OP_STYLE = {
 LAT_OPS = ["query", "insert", "delete", "maintain"]
 IDX_LAT_Q, IDX_LAT_I, IDX_LAT_D, IDX_LAT_M = 0, 1, 2, 3
 IDX_PART, IDX_RES, IDX_REC, IDX_TOT, IDX_SPL = 4, 5, 6, 7, 8
+
+# Metric columns collected per run
+_METRICS = ["Search", "Insert", "Delete", "Maintain", "Total", "Recall", "Partitions"]
 
 
 def unified_plot(cfg: Dict[str, Any], out_dir: Path) -> None:
@@ -284,6 +297,203 @@ def produce_summary_table(cfg: Dict[str, Any], out_dir: Path) -> None:
     log.info("\n%s", md_content)
 
 
+# ── Multi-seed helpers ────────────────────────────────────────────────────────
+
+def _extract_summary_row(name: str, csv_path: Path) -> Dict[str, Any] | None:
+    """
+    Extract a numeric summary dict for one index from its results.csv.
+    Returns None (with a warning) if the file is missing or unreadable.
+    """
+    if not csv_path.exists():
+        log.warning("[extract_summary] %s missing – skipped", csv_path)
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+        if df.empty:
+            raise pd.errors.EmptyDataError
+    except Exception as exc:
+        log.warning("[extract_summary] Could not read %s: %s", csv_path, exc)
+        return None
+
+    search_time  = df[df.operation_type == "query"].latency_ms.sum()  if 'operation_type' in df.columns else 0.0
+    insert_time  = df[df.operation_type == "insert"].latency_ms.sum() if 'operation_type' in df.columns else 0.0
+    delete_time  = df[df.operation_type == "delete"].latency_ms.sum() if 'operation_type' in df.columns else 0.0
+    maintain_time = df.maintenance_time_ms.fillna(0).sum()            if 'maintenance_time_ms' in df.columns else 0.0
+    total_time   = search_time + insert_time + delete_time + maintain_time
+
+    query_df  = df[df.operation_type == "query"] if 'operation_type' in df.columns else pd.DataFrame()
+    recall    = float(query_df.recall.mean()) if (not query_df.empty and 'recall' in query_df.columns) else np.nan
+
+    n_list    = df.n_list.dropna() if 'n_list' in df.columns else pd.Series(dtype=float)
+    partitions = float(n_list.iloc[-1]) if not n_list.empty else np.nan
+
+    return dict(
+        Index=name,
+        Search=float(search_time),
+        Insert=float(insert_time),
+        Delete=float(delete_time),
+        Maintain=float(maintain_time),
+        Total=float(total_time),
+        Recall=recall,
+        Partitions=partitions,
+    )
+
+
+def produce_multiseed_summary(
+    cfg: Dict[str, Any],
+    main_output_dir: Path,
+    seeds: List[int],
+) -> None:
+    """
+    After all seeds finish, collect per-seed results and write:
+      multiseed_raw.csv     — one row per (seed, index)
+      multiseed_summary.csv — one row per index, mean and std columns
+      multiseed_summary.md  — human-readable mean ± std table
+
+    Missing result files are warned and skipped; the function does not crash.
+    """
+    raw_rows: List[Dict[str, Any]] = []
+
+    for s in seeds:
+        seed_dir = main_output_dir / f"seed_{s}"
+        for idx_cfg in cfg.get("indexes", []):
+            name = idx_cfg["name"]
+            csv_path = seed_dir / name / "results.csv"
+            row = _extract_summary_row(name, csv_path)
+            if row is not None:
+                row["seed"] = s
+                raw_rows.append(row)
+
+    if not raw_rows:
+        log.warning("[multiseed_summary] No data collected across any seed — skipping aggregate.")
+        return
+
+    # ── Write raw CSV ──────────────────────────────────────────────────────────
+    raw_df = pd.DataFrame(raw_rows)
+    raw_csv_path = main_output_dir / "multiseed_raw.csv"
+    raw_df.to_csv(raw_csv_path, index=False)
+    log.info("Multi-seed raw data saved to %s", raw_csv_path)
+
+    # ── Compute mean ± std per index ──────────────────────────────────────────
+    agg_rows: List[Dict[str, Any]] = []
+    for idx_cfg in cfg.get("indexes", []):          # preserve YAML ordering
+        name = idx_cfg["name"]
+        grp  = raw_df[raw_df["Index"] == name]
+        if grp.empty:
+            log.warning("[multiseed_summary] No rows for index '%s' – skipped", name)
+            continue
+        row: Dict[str, Any] = {"Index": name}
+        for m in _METRICS:
+            if m in grp.columns:
+                vals = grp[m].dropna()
+                row[f"{m}_mean"] = float(vals.mean())          if len(vals) >= 1 else np.nan
+                row[f"{m}_std"]  = float(vals.std(ddof=1))     if len(vals) >= 2 else np.nan
+            else:
+                row[f"{m}_mean"] = np.nan
+                row[f"{m}_std"]  = np.nan
+        row["n_seeds"] = len(grp)
+        agg_rows.append(row)
+
+    if not agg_rows:
+        log.warning("[multiseed_summary] Aggregation produced no rows.")
+        return
+
+    summary_df = pd.DataFrame(agg_rows)
+    summary_csv_path = main_output_dir / "multiseed_summary.csv"
+    summary_df.to_csv(summary_csv_path, index=False)
+    log.info("Multi-seed summary (CSV) saved to %s", summary_csv_path)
+
+    # ── Build readable mean ± std display table ────────────────────────────────
+    display_df = summary_df[["Index"]].copy()
+    for m in _METRICS:
+        mean_col = f"{m}_mean"
+        std_col  = f"{m}_std"
+        if mean_col not in summary_df.columns:
+            continue
+
+        def _fmt(row: pd.Series, _m: str = m) -> str:
+            mu  = row[f"{_m}_mean"]
+            sig = row[f"{_m}_std"]
+            if pd.isna(mu):
+                return "—"
+            if _m == "Recall":
+                return f"{mu:.4f} ± {sig:.4f}" if pd.notna(sig) else f"{mu:.4f}"
+            return f"{mu:.0f} ± {sig:.0f}" if pd.notna(sig) else f"{mu:.0f}"
+
+        display_df[m] = summary_df.apply(_fmt, axis=1)
+
+    display_df["n_seeds"] = summary_df["n_seeds"]
+
+    summary_md_path = main_output_dir / "multiseed_summary.md"
+    header = (
+        f"# Multi-Seed Confirmation Summary\n"
+        f"Seeds: {seeds} ({len(seeds)} runs per config)\n\n"
+    )
+    md_body = tabulate(display_df, headers="keys", tablefmt="github", showindex=False)
+    summary_md_path.write_text(header + md_body + "\n")
+    log.info("Multi-seed summary (Markdown) saved to %s", summary_md_path)
+    log.info("\n%s", md_body)
+
+
+def _run_single_seed(
+    cfg: Dict[str, Any],
+    seed: int,
+    seed_dir: Path,
+    current_mode: str,
+    overwrite_workload: bool,
+    overwrite_results: bool,
+) -> None:
+    """
+    Run Phase 1 (workload generation), Phase 2 (index evaluation), and Phase 3
+    (per-seed plots + summary table) for a single seed value.
+
+    All workload files and index results are written under seed_dir.
+    """
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    log.info("── Seed %d  →  %s ──", seed, seed_dir)
+
+    # Synthesize a workload_generator config with this seed substituted in.
+    # The original may have 'seeds' (list); we produce a copy with 'seed' (int).
+    wl_cfg_for_seed = dict(cfg["workload_generator"])
+    wl_cfg_for_seed["seed"] = seed
+
+    index_class_map = {"Quake": QuakeWrapper}
+
+    # Phase 1 — workload generation
+    if current_mode in {"build", "run"}:
+        common_utils.generate_dynamic_workload(
+            dataset_main_cfg=cfg["dataset"],
+            workload_generator_cfg=wl_cfg_for_seed,
+            global_output_dir=seed_dir,
+            overwrite_workload=overwrite_workload,
+        )
+
+    # Phase 2 — index evaluation
+    if current_mode == "run":
+        for index_conf in cfg.get("indexes", []):
+            common_utils.evaluate_index_on_dynamic_workload(
+                index_config=index_conf,
+                index_class_mapping=index_class_map,
+                workload_data_dir=seed_dir,
+                experiment_main_output_dir=seed_dir,
+                overwrite_idx_results=overwrite_results,
+                do_maintenance_flag=True,
+            )
+
+    # Phase 3 — per-seed plots and summary (inside seed_dir)
+    if current_mode in {"run", "plot"}:
+        any_results = any(
+            (seed_dir / idx_cfg["name"] / "results.csv").exists()
+            for idx_cfg in cfg.get("indexes", [])
+        )
+        if any_results:
+            unified_plot(cfg, seed_dir)
+            make_time_breakdown(cfg, seed_dir)
+            produce_summary_table(cfg, seed_dir)
+        else:
+            log.warning("[seed %d] No results found — skipping per-seed plots.", seed)
+
+
 def run_experiment(cfg_path_str: str, output_dir_str: str) -> None:
     cfg = common_utils.load_config(cfg_path_str)
     main_output_dir = Path(output_dir_str).expanduser()
@@ -292,6 +502,26 @@ def run_experiment(cfg_path_str: str, output_dir_str: str) -> None:
     current_mode = cfg.get("mode", "run")
     log.info(f"Running Maintenance Ablation experiment in mode: {current_mode}")
 
+    wl_cfg          = cfg.get("workload_generator", {})
+    overwrite_workload = cfg.get("overwrite", {}).get("workload", False)
+    overwrite_results  = cfg.get("overwrite", {}).get("results", False)
+
+    # ── Multi-seed path (triggered only when workload_generator.seeds is a list) ──
+    if "seeds" in wl_cfg:
+        seeds = list(wl_cfg["seeds"])
+        log.info("Multi-seed mode activated: seeds = %s", seeds)
+
+        for s in seeds:
+            seed_dir = main_output_dir / f"seed_{s}"
+            _run_single_seed(cfg, s, seed_dir, current_mode, overwrite_workload, overwrite_results)
+
+        if current_mode in {"run", "plot"}:
+            produce_multiseed_summary(cfg, main_output_dir, seeds)
+
+        log.info("Maintenance Ablation experiment (multi-seed) finished for mode: %s", current_mode)
+        return
+
+    # ── Single-seed path (existing behaviour — unchanged) ─────────────────────
     workload_actual_dir = main_output_dir # Workload files are stored at the top level of main_output_dir
 
     # --- Phase 1: Dataset and Workload Generation ---
