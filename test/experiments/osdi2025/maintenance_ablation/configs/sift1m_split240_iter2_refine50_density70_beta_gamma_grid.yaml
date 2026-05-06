@@ -1,0 +1,248 @@
+# Density70 Beta/Gamma Grid Sweep
+# Characterizes the full 3x3 region of the general score family
+# S_{beta,gamma}(p) = (h_p + 1)^beta * (m_p / |p|)^gamma
+# for beta in {0.5, 1.0, 1.5} x gamma in {0.5, 1.0, 1.5}.
+#
+# All 9 grid configs use:
+#   refinement_normalize_mutations: true   (density staleness)
+#   refinement_top_k_score: 70
+#   split_threshold_ns: 240
+#
+# 4 baselines included for reference:
+#   Quake              - full refinement, standard cost-model
+#   Score50-Raw-Linear - prior best raw-mutation operating point
+#   Density70-Linear   - prior best density operating point (1.0, 1.0)
+#   Density70-SqrtHits - current best exponent result (0.5, 1.0)
+#
+# 5 of the 9 grid points were already measured in the exponent sweep
+# (beta=0.5/1.0 x gamma=0.5/1.0). They are re-run here for a clean
+# single-workload comparison. The 4 new points add beta=1.5 and gamma=1.5.
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  recall_target: 0.9
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+  seed: 9299
+
+indexes:
+  # ── Reference baselines ──────────────────────────────────────────────────────
+  - name: Quake
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  - name: Score50-Raw-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 50
+      refinement_normalize_mutations: false
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Density70-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Density70-SqrtHits
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── 3x3 grid: beta in {0.5, 1.0, 1.5} x gamma in {0.5, 1.0, 1.5} ──────────
+  # Row beta=0.5
+  - name: D70-B0.5-G0.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: D70-B0.5-G1.0
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: D70-B0.5-G1.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 1.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # Row beta=1.0
+  - name: D70-B1.0-G0.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: D70-B1.0-G1.0
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: D70-B1.0-G1.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # Row beta=1.5
+  - name: D70-B1.5-G0.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.5
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: D70-B1.5-G1.0
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.5
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: D70-B1.5-G1.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.5
+      refinement_score_gamma: 1.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    # Baselines
+    Quake:               {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Score50-Raw-Linear:  {color: "#9467bd", linestyle: "-",  marker: "^"}
+    Density70-Linear:    {color: "#17becf", linestyle: "-",  marker: "P"}
+    Density70-SqrtHits:  {color: "#2ca02c", linestyle: "-",  marker: "s"}
+    # Grid: beta=0.5 row (blue tones)
+    D70-B0.5-G0.5:       {color: "#aec7e8", linestyle: "--", marker: "v"}
+    D70-B0.5-G1.0:       {color: "#6baed6", linestyle: "--", marker: "v"}
+    D70-B0.5-G1.5:       {color: "#2171b5", linestyle: "--", marker: "v"}
+    # Grid: beta=1.0 row (orange tones)
+    D70-B1.0-G0.5:       {color: "#fdae6b", linestyle: "--", marker: "D"}
+    D70-B1.0-G1.0:       {color: "#f16913", linestyle: "--", marker: "D"}
+    D70-B1.0-G1.5:       {color: "#8c2d04", linestyle: "--", marker: "D"}
+    # Grid: beta=1.5 row (green tones)
+    D70-B1.5-G0.5:       {color: "#a1d99b", linestyle: "--", marker: "X"}
+    D70-B1.5-G1.0:       {color: "#41ab5d", linestyle: "--", marker: "X"}
+    D70-B1.5-G1.5:       {color: "#006d2c", linestyle: "--", marker: "X"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true
