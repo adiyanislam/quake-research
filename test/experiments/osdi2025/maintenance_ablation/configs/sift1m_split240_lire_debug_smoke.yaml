@@ -1,0 +1,93 @@
+# LIRE Debug / Smoke Test
+# ────────────────────────────────────────────────────────────────────────────────
+# Purpose:
+#   Reproduce and isolate the LIRE crash from the baseline comparison run.
+#   LIRE crashed at seed_9299 in sift1m_split240_baseline_comparison_3seed.
+#   This config runs LIRE in isolation on a SMALLER workload so it crashes
+#   faster and without blocking other baselines.
+#
+# LIRE config is identical to the crashing run:
+#   - Quake backend with refinement_iterations=0, max_partition_size=2000
+#   - search_params with recall_target=0.9 (APS mode)
+#   - Default refinement_radius=25 (local_refinement WILL run)
+#
+# Smaller workload:
+#   - initial_size: 10000 (was 100000)
+#   - number_of_operations: 200 (was 1000)
+#   - update_batch_size: 2000 (was 10000)
+#   - query_batch_size: 100 (was 1000)
+#   - Same skewed insert distribution to stress specific partitions
+#   - Single seed (9299) to match the original crash condition
+#
+# Expected behavior:
+#   With initial_size=10000 and nc=1000, partitions start at ~10 vectors.
+#   With batch inserts of 2000 into a skewed distribution, hot partitions
+#   reach max_partition_size=2000 quickly (~1-2 batches).
+#   This triggers rapid aggressive splitting which is the suspected crash path.
+#
+# Crash hypothesis:
+#   local_refinement() is called after each split with default radius=25.
+#   kmeans_refine_partitions(iterations=0) does 1 reassignment pass.
+#   With stale partition IDs in the parent index or empty partitions being
+#   accessed, a null pointer dereference may occur in partition_store_.
+#   See clustering.cpp:264 (partitions[0]->code_size_ access) and
+#   partition_manager.cpp:554 (partition_store_->partitions_[pids[i]]).
+#
+# If crash does not reproduce, try LIRE-NoRefinement variant below:
+#   - Add refinement_radius: 0 to skip local_refinement entirely
+#   - If that does NOT crash but the original does, crash is in local_refinement
+#
+# Do NOT fix C++ in this config. This config is for observation only.
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 200
+  initial_size: 10000
+  cluster_size: 1000
+  update_batch_size: 2000
+  query_batch_size: 100
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── LIRE — exact config from crashing run, for crash reproduction ────────────
+  - name: LIRE-CrashRepro
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_iterations: 0
+      max_partition_size: 2000
+
+  # ── LIRE-NoRefinement — same but with refinement_radius=0 ────────────────────
+  # If this runs without crashing and LIRE-CrashRepro crashes,
+  # the crash is inside local_refinement() / kmeans_refine_partitions().
+  - name: LIRE-NoRefinement
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_iterations: 0
+      refinement_radius: 0
+      max_partition_size: 2000
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    LIRE-CrashRepro:    {color: "#d62728", linestyle: "-", marker: "X"}
+    LIRE-NoRefinement:  {color: "#2ca02c", linestyle: "--", marker: "o"}
+
+overwrite:
+  workload: true
+  index: true
+  results: true
