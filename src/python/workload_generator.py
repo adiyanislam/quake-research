@@ -509,11 +509,14 @@ class WorkloadEvaluator:
                 total_scan_time = 0
 
                 for t_info in t_infos:
-                    total_parent_time += t_info.parent_info.total_time_ns / 1e6
+                    # parent_info is Quake-specific; non-Quake indexes (FaissIVF etc.) set it to None.
+                    if t_info.parent_info is not None:
+                        total_parent_time += t_info.parent_info.total_time_ns / 1e6
                     total_time += t_info.total_time_ns / 1e6
-                    total_boundary_time += t_info.boundary_distance_time_ns / 1e6
-                    total_aps_time += t_info.aps_time_ns / 1e6
-                    total_scan_time += t_info.scan_time_ns / 1e6
+                    # boundary/aps/scan fields are 0 for non-Quake indexes (harmless).
+                    total_boundary_time += getattr(t_info, 'boundary_distance_time_ns', 0) / 1e6
+                    total_aps_time += getattr(t_info, 'aps_time_ns', 0) / 1e6
+                    total_scan_time += getattr(t_info, 'scan_time_ns', 0) / 1e6
 
                 print(f" | parent {total_parent_time:.2f} ms"
                       f" | total {total_time:.2f} ms"

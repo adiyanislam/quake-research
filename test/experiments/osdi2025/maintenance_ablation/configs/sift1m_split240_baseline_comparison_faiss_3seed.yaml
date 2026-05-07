@@ -115,4 +115,4 @@ plot:
 overwrite:
   workload: false
   index: true
-  results: true
+  results: false  # false = skip configs with existing results.csv
