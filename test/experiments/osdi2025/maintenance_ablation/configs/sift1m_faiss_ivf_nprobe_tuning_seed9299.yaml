@@ -1,0 +1,80 @@
+# Faiss-IVF nprobe Tuning Sweep
+# ────────────────────────────────────────────────────────────────────────────────
+# Purpose:
+#   The baseline comparison (sift1m_split240_baseline_comparison_faiss_3seed)
+#   used nprobe=100, which achieves recall ~0.997 but takes ~9500-10300 ms per
+#   1000 queries. Our target recall is ~0.90. This sweep finds the smallest
+#   nprobe that reaches recall 0.90 for a fair, matched-recall comparison.
+#
+# nprobe=100 is excluded: we already have evidence it is too slow (~0.997 recall).
+#
+# Selection rule after sweep:
+#   Pick the smallest nprobe whose mean/final recall is >= 0.90.
+#   If no config reaches 0.90, pick the closest config above 0.90.
+#   That nprobe goes into the 3-seed baseline comparison config.
+#
+# Single seed (9299) to match the workload used in existing baseline partial results.
+# Output dir: sift1m_faiss_ivf_nprobe_tuning_seed9299/ — no collision with baseline dir.
+#
+# Build params: nc=1000, metric=l2 — same as baseline comparison.
+# Workload: identical shape to baseline comparison (1000 ops, skewed inserts).
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  - name: Faiss-IVF-nprobe5
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 5}
+
+  - name: Faiss-IVF-nprobe10
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 10}
+
+  - name: Faiss-IVF-nprobe20
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 20}
+
+  - name: Faiss-IVF-nprobe40
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 40}
+
+  - name: Faiss-IVF-nprobe80
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 80}
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Faiss-IVF-nprobe5:  {color: "#c7e9c0", linestyle: "-", marker: "o"}
+    Faiss-IVF-nprobe10: {color: "#74c476", linestyle: "-", marker: "s"}
+    Faiss-IVF-nprobe20: {color: "#31a354", linestyle: "-", marker: "^"}
+    Faiss-IVF-nprobe40: {color: "#006d2c", linestyle: "-", marker: "D"}
+    Faiss-IVF-nprobe80: {color: "#d62728", linestyle: "-", marker: "X"}
+
+overwrite:
+  workload: false
+  index: true
+  results: false
