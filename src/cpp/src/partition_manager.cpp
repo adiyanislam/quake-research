@@ -546,6 +546,39 @@ void PartitionManager::refine_partitions(Tensor partition_ids, int iterations) {
         return;
     }
 
+    // Guard: filter out stale partition IDs that may have been deleted between
+    // the local_refinement candidate search and this call.  This can occur under
+    // aggressive size-based maintenance (e.g. LIRE-style rapid splits) where
+    // one maintenance cycle deletes a partition that a prior parent-index search
+    // still returned as a candidate.  Using operator[] on a missing key would
+    // silently insert a nullptr shared_ptr, causing a null-dereference in
+    // kmeans_refine_partitions.
+    std::vector<int64_t> valid_pid_vec;
+    valid_pid_vec.reserve(partition_ids.size(0));
+    {
+        auto raw_pids = partition_ids.accessor<int64_t, 1>();
+        for (int i = 0; i < partition_ids.size(0); i++) {
+            int64_t pid = raw_pids[i];
+            auto it = partition_store_->partitions_.find(pid);
+            if (it == partition_store_->partitions_.end() || it->second == nullptr) {
+                std::cerr << "[PartitionManager] refine_partitions: skipping stale pid "
+                          << pid << " (not in partition_store_)\n";
+            } else {
+                valid_pid_vec.push_back(pid);
+            }
+        }
+    }
+
+    if (valid_pid_vec.size() < 2) {
+        std::cerr << "[PartitionManager] refine_partitions: fewer than 2 valid partitions ("
+                  << valid_pid_vec.size() << " of " << partition_ids.size(0)
+                  << "), skipping refinement.\n";
+        return;
+    }
+
+    // Rebuild tensor from valid IDs so downstream calls (modify, reset_counts) are consistent.
+    partition_ids = torch::tensor(valid_pid_vec,
+        torch::TensorOptions().dtype(torch::kInt64).device(partition_ids.device()));
     auto pids = partition_ids.accessor<int64_t, 1>();
 
     Tensor current_centroids = parent_->get(partition_ids);

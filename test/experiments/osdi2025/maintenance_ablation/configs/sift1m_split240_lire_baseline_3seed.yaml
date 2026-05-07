@@ -1,0 +1,97 @@
+# LIRE + FlexiRefine 3-Seed Baseline Comparison
+# ────────────────────────────────────────────────────────────────────────────────
+# Run only after sift1m_split240_lire_debug_smoke confirms LIRE-CrashRepro
+# no longer crashes with the stale-partition guard in refine_partitions().
+#
+# Compares:
+#   Quake              — full cost-model maintenance + full K-means refinement
+#   LIRE               — size-based splits, reassignment only (0 K-means iterations)
+#                        Approximates SPFresh/LIRE design: dynamic partitioning
+#                        without centroid-quality repair.
+#   D70-B0.5-G0.5      — best balanced FlexiRefine config (confirmed 3-seed)
+#   Score50-Raw-Linear — lowest-maintenance FlexiRefine config (confirmed 3-seed)
+#
+# Key comparison question:
+#   Does selective K-means refinement (FlexiRefine) matter, or is LIRE-style
+#   reassignment-only maintenance sufficient to preserve recall at 0.90?
+#
+# Seeds: [9299, 42, 12345]
+# overwrite.results: false — reuse any completed seed_9299 results
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seeds: [9299, 42, 12345]
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  - name: Quake
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  - name: LIRE
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_iterations: 0
+      max_partition_size: 2000
+
+  - name: D70-B0.5-G0.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  - name: Score50-Raw-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 50
+      refinement_normalize_mutations: false
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake:              {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    LIRE:               {color: "#ffbb78", linestyle: "-",  marker: "P"}
+    D70-B0.5-G0.5:      {color: "#2ca02c", linestyle: "-",  marker: "D"}
+    Score50-Raw-Linear: {color: "#9467bd", linestyle: "-",  marker: "^"}
+
+overwrite:
+  workload: false
+  index: true
+  results: false
