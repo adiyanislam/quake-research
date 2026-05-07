@@ -1,0 +1,56 @@
+# Faiss-IVF nprobe Fast Tuning Sweep (narrowed)
+# ────────────────────────────────────────────────────────────────────────────────
+# Previous sweep showed nprobe=5 gives recall ~0.82-0.84, below target.
+# nprobe=100 (original baseline) gives recall ~0.997, too slow.
+# This narrowed sweep covers only the likely target range: {10, 20, 40}.
+# nprobe=80 excluded — add it only if nprobe=40 falls below 0.90.
+#
+# Selection rule: pick the smallest nprobe whose recall >= 0.90.
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  - name: Faiss-IVF-nprobe10
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 10}
+
+  - name: Faiss-IVF-nprobe20
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 20}
+
+  - name: Faiss-IVF-nprobe40
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 40}
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Faiss-IVF-nprobe10: {color: "#74c476", linestyle: "-", marker: "s"}
+    Faiss-IVF-nprobe20: {color: "#31a354", linestyle: "-", marker: "^"}
+    Faiss-IVF-nprobe40: {color: "#006d2c", linestyle: "-", marker: "D"}
+
+overwrite:
+  workload: false
+  index: true
+  results: false
