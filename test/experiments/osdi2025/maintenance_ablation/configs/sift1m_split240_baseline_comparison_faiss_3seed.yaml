@@ -100,7 +100,7 @@ indexes:
   - name: Faiss-IVF
     index: FaissIVF
     build_params: {nc: 1000, metric: l2}
-    search_params: {k: 10, nprobe: 100}
+    search_params: {k: 10, nprobe: 20}  # tuned: nprobe=20 gives recall ~0.910, nprobe=10 ~0.841
 
 plot:
   x_axis: operation_number
