@@ -1,0 +1,69 @@
+# LIRE Debug Smoke — Full Workload Shape
+# ────────────────────────────────────────────────────────────────────────────────
+# Previous smoke config (sift1m_split240_lire_debug_smoke) used a reduced
+# workload (initial_size=10000, 200 ops) which produced an empty heatmap_array
+# during workload generation, crashing before any index evaluation.
+#
+# This config uses the same workload shape as the baseline comparison
+# (initial_size=100000, 1000 ops) so workload generation completes normally.
+# Single seed 9299 to match the original LIRE crash condition.
+#
+# Two LIRE variants:
+#   LIRE-CrashRepro   — identical to crashing config (default radius=25, iter=0)
+#                       Should now survive with the stale-partition guard.
+#                       Watch for stderr: "[PartitionManager] skipping stale pid"
+#                       to confirm the guard fires on real stale IDs.
+#   LIRE-NoRefinement — radius=0 skips local_refinement entirely.
+#                       Should always complete cleanly; serves as control.
+#
+# If LIRE-CrashRepro now completes without crashing, proceed to the 3-seed run:
+#   sift1m_split240_lire_baseline_3seed
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  - name: LIRE-CrashRepro
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_iterations: 0
+      max_partition_size: 2000
+
+  - name: LIRE-NoRefinement
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_iterations: 0
+      refinement_radius: 0
+      max_partition_size: 2000
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    LIRE-CrashRepro:   {color: "#d62728", linestyle: "-", marker: "X"}
+    LIRE-NoRefinement: {color: "#2ca02c", linestyle: "--", marker: "o"}
+
+overwrite:
+  workload: true
+  index: true
+  results: true

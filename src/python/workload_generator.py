@@ -369,14 +369,17 @@ class DynamicWorkloadGenerator:
 
         # Convert the history to a NumPy array with shape (n_clusters, n_operations)
         heatmap_array = np.array(self.resident_history).T
-        fig, ax = plt.subplots(figsize=(10, 6))
-        cax = ax.imshow(heatmap_array, cmap="viridis", aspect="auto")
-        ax.set_xlabel("Operation Number")
-        ax.set_ylabel("Cluster ID")
-        cbar = fig.colorbar(cax)
-        cbar.set_label("Resident Fraction")
-        plt.tight_layout()
-        plt.savefig(self.workload_dir / "resident_history.png")
+        if heatmap_array.size > 0:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            cax = ax.imshow(heatmap_array, cmap="viridis", aspect="auto")
+            ax.set_xlabel("Operation Number")
+            ax.set_ylabel("Cluster ID")
+            cbar = fig.colorbar(cax)
+            cbar.set_label("Resident Fraction")
+            plt.tight_layout()
+            plt.savefig(self.workload_dir / "resident_history.png")
+        else:
+            print("[WorkloadGenerator] Skipping heatmap: resident_history is empty.")
 
         print("\nWorkload Generation Summary:")
         print(f"Total Operations: {n_operations}")
