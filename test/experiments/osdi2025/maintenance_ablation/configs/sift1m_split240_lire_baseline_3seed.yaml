@@ -52,6 +52,7 @@ indexes:
     search_params: {k: 10, recall_target: 0.9}
     maintenance_params:
       refinement_iterations: 0
+      min_partition_size: 0  # prevents partition deletion / resident-set divergence (smoke-confirmed fix)
       max_partition_size: 2000
 
   - name: D70-B0.5-G0.5
