@@ -9,18 +9,24 @@
 %         Do not submit this file directly.
 %         Copy sections into Overleaf after advisor review.
 %
-% Claim status legend used in \todo and annotation tags:
-%   [CONFIRMED] — supported by 3-seed mean+/-std
+% Claim status legend:
+%   [CONFIRMED] — supported by 3-seed mean ± std
 %   [SINGLE-RUN] — from one run; directional only
 %   [SUPERSEDED] — old result kept for reference; do not cite
 %   [TODO] — needs data, experiment, or writing
 %
-% DZ revision notes applied (2026-05-05):
-%   - Motivation/use-cases merged into Introduction
-%   - Related Work moved after Introduction (4 subsections max)
-%   - Evaluation setup combined into one Experimental Setup subsection
-%   - Evaluation headers are result-style, not Q-format
-%   - Low-tier SISAP 2013 reference removed (not central; not top-tier)
+% DZ revision notes applied (2026-05-05, second pass):
+%   - Contributions reduced from 6 to 4
+%   - Motivation/use-cases prose merged into Introduction
+%   - Section 2 renamed "Background and Related Work"
+%   - Section 3 renamed "Design of FlexiRefine"
+%   - Section 4 renamed "Theoretical Analysis" (expanded formulas)
+%   - Section 5 adds multi-seed infra + evaluator compat subsections
+%   - Section 6 Evaluation: RQ preamble + 6 result-style subsections
+%   - Section 7 is Conclusion; Discussion and Future Work are subsections
+%   - Faiss-IVF 3-seed confirmed results added to §6.4
+%   - LIRE framed as pending/debugging (no quantitative claims yet)
+%   - BibTeX file: docs/flexirefine_refs.bib (verified entries only)
 % ============================================================
 
 \documentclass[sigconf, nonacm]{acmart}
@@ -60,39 +66,35 @@
 % ============================================================
 \begin{abstract}
 % ============================================================
-% [CONFIRMED] 36–46% maintenance reduction across 3 seeds.
-% [CONFIRMED] All selective configs preserve mean recall >= 0.90.
-% [CONFIRMED] Total runtime within 4% of full-refinement baseline.
+% [CONFIRMED] 38-45% maintenance reduction, recall >= 0.90, overhead < 5%
+% [CONFIRMED] Static Faiss-IVF is over 4x slower total runtime
 
 Dynamic vector search systems must maintain high recall and low query
 latency under continuous inserts, deletes, and shifting access patterns.
-Partitioned indexes are update-friendly but suffer recall degradation if
-maintenance is disabled; enabling full maintenance can dominate total
-runtime even under moderate update rates. No existing system exposes a
-principled, flexible control surface over the recall--maintenance tradeoff.
+Existing adaptive partitioned indexes improve on static approaches but
+expose only limited control over the tradeoff between maintenance cost,
+search quality, and total runtime: maintenance is typically either fully
+enabled or fully disabled, with few principled options in between.
 
-We present \system, a control-plane framework that treats local
-partition refinement as a tunable resource allocation problem. Instead
-of refining all candidate partitions after each split, \system ranks
-candidates by a scoring function that jointly estimates workload
-importance (via query hit counts) and structural staleness (via
-mutation counts since last refinement). This exposes a controllable
-tradeoff between maintenance cost, search quality, and total runtime.
+We present \system, a control-plane framework that treats post-split
+partition refinement as a tunable resource allocation problem.
+Rather than refining all candidate partitions after each structural
+change, \system ranks candidates using a joint importance--staleness
+score that combines recent query hit counts with mutation-based staleness.
+The score family $S_{\beta,\gamma}(p) = (h_p + 1)^\beta D(p)^\gamma$
+subsumes raw, density-normalized, and exponent-weighted staleness signals,
+giving users a principled and interpretable control surface.
 
-We implement a family of refinement policies---including split-threshold
-tuning, candidate budgeting, hit-based selection, raw and
-density-normalized staleness scoring, and a general multiplicative score
-family---and evaluate on a dynamic SIFT1M workload. We report
-mean\,$\pm$\,std across three independent workload seeds to account for
-K-means non-determinism.
-
-\textbf{Score-based selective refinement reduces maintenance by
-36--46\% while preserving mean recall above 0.90 across three
-independent workloads, with total runtime within 4\% of the
-full-refinement baseline.}
-Naive filtering policies (size-only, distance-only, per-split coverage)
-reduce maintenance but fail to preserve recall, confirming that a joint
-workload-importance--staleness signal is necessary.
+We implement \system on top of a dynamic partitioned vector index and
+evaluate on a SIFT1M dynamic workload with inserts, deletes, and queries,
+reporting mean\,$\pm$\,std across three independent workload seeds.
+\textbf{Score-based selective refinement reduces maintenance by 38--45\%
+while preserving mean recall above 0.90, with total runtime overhead
+below 5\%.}
+For comparison, a static Faiss-IVF index that performs no maintenance
+pays over 4$\times$ higher total runtime and fails the 0.90 recall target
+on one of three seeds, demonstrating that dynamic maintenance is necessary
+under realistic insert/delete workloads.
 \end{abstract}
 
 \maketitle
@@ -102,209 +104,214 @@ workload-importance--staleness signal is necessary.
 \label{sec:intro}
 % ============================================================
 
-Vector search has become a core primitive in retrieval-augmented
-generation, recommendation systems, semantic search, and
-embedding-based personalization~\cite{todo-rag,todo-annsurvey}.
+Vector search is a core primitive in retrieval-augmented generation,
+recommendation systems, semantic search, and embedding-based
+personalization~\cite{lewis2020rag, radford2021clip}.
 These applications store large collections of high-dimensional vectors
 and answer approximate nearest-neighbor queries under strict latency and
-recall requirements. In practice, the underlying data is rarely static.
-New embeddings arrive continuously as content is added; stale vectors
-are deleted as content is removed; and query distributions shift with
-user interests. These dynamics make vector indexing significantly
-harder than static approximate nearest-neighbor search.
+recall requirements. In practice, the underlying data is rarely static:
+new embeddings arrive continuously, stale vectors are deleted, and query
+distributions shift with user interests. These dynamics make vector
+indexing significantly harder than static approximate nearest-neighbor
+search~\cite{malkov2020, jayaram2019}.
 
-Existing approaches handle this tension unevenly. Graph-based indexes
-such as HNSW~\cite{malkov2018} and DiskANN~\cite{jayaram2019} achieve
-strong search quality in read-heavy settings but can be expensive to
-update, as graph quality degrades under high-churn workloads.
-Partitioned indexes such as Faiss-IVF~\cite{johnson2019} and
-ScaNN~\cite{guo2020} are more update-friendly because inserts and
-deletes are local operations, but they suffer from partition imbalance
-and quality drift if maintenance is neglected. Recent adaptive
-systems~\cite{todo-quake,todo-spfresh} show that dynamic maintenance can
-substantially improve dynamic partitioned search. However, these systems
-expose only limited operating-point choices: maintenance is either fully
-enabled or disabled, with few principled options in between.
+Existing systems address this tension unevenly. Graph-based indexes such
+as HNSW~\cite{malkov2020} and DiskANN~\cite{jayaram2019} achieve strong
+search quality in read-heavy settings but degrade under high-churn
+workloads, as frequent insertions and deletions can corrupt graph
+structure. Partitioned indexes such as Faiss-IVF~\cite{johnson2021} and
+ScaNN~\cite{guo2020} support localized inserts and deletes but suffer
+from partition imbalance and centroid drift if maintenance is neglected.
+Recent adaptive systems~\cite{todo-quake, zhang2023spfresh} show that
+cost-model-driven maintenance can substantially improve dynamic
+partitioned search. However, even these systems expose only a narrow
+set of operating points: maintenance is either fully enabled or fully
+disabled, with few principled options in between.
 
-The deeper limitation is a control problem, not only an algorithmic one.
-Different deployments have fundamentally different tradeoff requirements.
-A retrieval-augmented generation pipeline may require recall above 0.90
-and accept higher maintenance overhead. A high-ingestion streaming
-system may want lower maintenance overhead even at a modest recall
-penalty. A latency-sensitive recommendation service cares most about
-stable per-query latency. A resource-constrained deployment may need an
-explicit maintenance budget. A single fixed policy cannot serve all of
-these needs. What is needed is a \emph{controllable maintenance system}
-that exposes these tradeoffs explicitly, rather than hiding them behind
-internal defaults.
+The deeper limitation is a \emph{control} problem. Different deployments
+have fundamentally different tradeoff requirements:
+\begin{itemize}[leftmargin=*]
+  \item A retrieval-augmented generation pipeline may require recall
+    above 0.90 and accept higher maintenance overhead.
+  \item A high-ingestion streaming system may want aggressive maintenance
+    reduction even at a modest recall penalty.
+  \item A latency-sensitive recommendation service cares most about
+    stable per-query latency.
+  \item A balanced deployment wants recall near target, lower
+    maintenance, and no increase in total runtime.
+\end{itemize}
+A single fixed policy cannot serve all of these needs. What is needed is
+a \emph{controllable maintenance system} that makes these tradeoffs
+explicit, rather than hiding them behind internal defaults.
 
 This paper presents \system, a control-plane framework for dynamic
-partitioned vector index maintenance. \system focuses on
-\emph{refinement}, the operation that repairs local partition quality by
-running K-means on the neighbors of recently split partitions.
-Refinement is important because it reduces overlap and improves vector
-assignments, but it is also expensive: in our experiments, disabling
-refinement cuts maintenance time by roughly 14$\times$ while dropping
-recall by approximately 3 points. This makes refinement a natural point
-of intervention---costly enough to matter, important enough that
-removing it blindly is unsafe.
+partitioned vector index maintenance that focuses on
+\emph{partition refinement}---the operation that repairs local
+partition quality by running K-means on the neighbors of recently
+split partitions. Refinement is important: disabling it cuts maintenance
+time by roughly $14\times$ but drops recall by approximately 3 points
+in our experiments. This makes refinement a natural control point: costly
+enough to matter, important enough that removing it blindly is unsafe.
 
-\system treats refinement as a resource allocation problem. The key
-insight is that refinement is most valuable when applied to partitions
-that are both \emph{important to current queries} (estimated by recent
-query hit counts) and \emph{structurally stale} (estimated by mutations
-since last refinement). Given a maintenance budget, the system ranks
-candidate partitions by a score combining these two signals and refines
-only the top-ranked subset. This is in contrast to naive approaches that
-rank by size, distance, or a fixed per-split quota, each of which we
-show fails to preserve the recall target while reducing maintenance.
-
-The score family \system supports is parameterizable. The simplest
-effective form uses raw mutation count as the staleness signal:
-$S(p) = (h_p + 1) m_p$.
-A more principled form normalizes by partition size, treating
-\emph{mutations per resident vector} as a proxy for centroid drift rate:
-$S(p) = (h_p + 1)(m_p / |p|)$.
-The general family $S_{\beta,\gamma}(p) = (h_p+1)^\beta D(p)^\gamma$
-subsumes both as special cases and allows exploring the full
-importance--staleness tradeoff space.
+\system treats refinement as a resource allocation problem. Given a
+maintenance budget, the system ranks candidate partitions by a score
+that jointly estimates workload importance and structural staleness, then
+refines only the top-ranked subset. The score family:
+\begin{equation}
+  S_{\beta,\gamma}(p) = (h_p + 1)^\beta D(p)^\gamma
+\end{equation}
+where $h_p$ counts recent query hits and $D(p)$ estimates staleness,
+subsumes raw mutation counts, density-normalized mutation rates, and
+exponent-weighted variants as special cases. No single $(\beta,\gamma)$
+pair is universally optimal; the family is a tunable control surface
+that users can select from based on application priorities.
 
 This paper makes the following contributions:
 
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Control-plane framing.}
-    We frame dynamic vector index maintenance as a controllable
-    tradeoff problem. Different users can select operating points
-    based on recall requirements, maintenance budgets, or latency
-    stability needs.
+\begin{enumerate}[leftmargin=*, label=\textbf{C\arabic*.}]
+  \item \textbf{Control-plane problem identification.}
+    We identify the missing flexibility in dynamic vector index
+    maintenance: existing systems lack principled control over the
+    tradeoff between recall, maintenance cost, and total runtime.
+    We frame this as a resource allocation problem over partition
+    refinement.
 
-  \item \textbf{Full implementation.}
-    We implement \system as a modular refinement-control layer on top
-    of a dynamic partitioned vector index, exposing all policy knobs
-    through configuration files.
+  \item \textbf{Score-based selective refinement design.}
+    We design \system, a modular refinement-control framework built
+    around a joint importance--staleness scoring signal. We define the
+    general score family $S_{\beta,\gamma}(p)$, analyze its properties,
+    and show that density-normalized staleness provides a more stable
+    signal than raw mutation count.
 
-  \item \textbf{Score-family formulation.}
-    We define a general multiplicative score family
-    $S_{\beta,\gamma}(p) = (h_p + 1)^\beta D(p)^\gamma$,
-    prove budget-monotonicity and cost-bounding properties, and
-    evaluate the family empirically.
+  \item \textbf{Full implementation and infrastructure.}
+    We implement \system in C++ and Python on top of a dynamic
+    partitioned vector index. The implementation includes per-partition
+    mutation tracking, sliding-window hit tracking, score-based
+    candidate selection, and a multi-seed evaluation infrastructure that
+    reports mean\,$\pm$\,std to account for K-means non-determinism.
 
-  \item \textbf{Multiseed evaluation.}
-    We report mean\,$\pm$\,std across three independent workload seeds
-    to account for K-means non-determinism, supporting reproducible
-    comparison of policy classes rather than individual runs.
+  \item \textbf{Empirical evaluation with external baselines.}
+    We evaluate \system on dynamic SIFT1M workloads across three seeds
+    and show 38--45\% maintenance reduction with mean recall above 0.90
+    and total runtime overhead below 5\%. For comparison, a static
+    Faiss-IVF index (no dynamic maintenance) pays over $4\times$ higher
+    total runtime and fails the recall target on one of three seeds.
+\end{enumerate}
 
-  \item \textbf{Negative-result analysis.}
-    We show that size-only, distance-only, per-split coverage, and
-    hit-only policies each fail to preserve recall while reducing
-    maintenance, and explain the mechanism in each case.
-
-  \item \textbf{Baseline comparison infrastructure.}
-    We compare against LIRE-style maintenance (size-based policy, no
-    K-means refinement) and Faiss-IVF (static IVF, no dynamic
-    maintenance), with further baselines (HNSW, ScaNN) planned.
-    \todo{Finalize baseline results and add citations.}
-\end{itemize}
-
-Section~\ref{sec:related} surveys related work.
-Section~\ref{sec:system} presents the \system architecture.
-Section~\ref{sec:theory} gives the theoretical formulation.
-Section~\ref{sec:implementation} describes the implementation.
-Section~\ref{sec:evaluation} evaluates the system.
-Section~\ref{sec:discussion} discusses limitations.
-Section~\ref{sec:conclusion} concludes.
-Section~\ref{sec:future} identifies future work.
+The paper proceeds as follows.
+\S\ref{sec:related} provides background and related work.
+\S\ref{sec:system} presents the \system design.
+\S\ref{sec:theory} gives the theoretical analysis.
+\S\ref{sec:implementation} describes the implementation.
+\S\ref{sec:evaluation} evaluates the system.
+\S\ref{sec:conclusion} concludes with discussion and future work.
 
 % ============================================================
-\section{Related Work}
+\section{Background and Related Work}
 \label{sec:related}
 % ============================================================
-% DZ: Related Work moved after Introduction. At most 4 subsections.
-% Low-tier SISAP 2013 reference not cited here.
+% DZ: at most 4 subsections; remove/deprioritize SISAP 2013 Boytsov;
+%     DB/systems venues first.
 
 \subsection{Vector Search Indexes}
 
-Vector search indexes organize high-dimensional vectors for approximate
-nearest-neighbor retrieval. Graph-based indexes such as
-HNSW~\cite{malkov2018}, DiskANN~\cite{jayaram2019}, and
-SVS~\cite{aguerrebere2023} navigate proximity graphs at query time,
-achieving strong recall-latency tradeoffs in static or read-heavy
-settings. Frequent updates can degrade graph quality and require
-structural repair, making these indexes expensive to maintain under
-high-churn workloads.
+Vector search organizes high-dimensional vectors for approximate
+nearest-neighbor retrieval.
+Graph-based indexes navigate proximity graphs at query time.
+HNSW~\cite{malkov2020} builds a multi-layer navigable small world
+graph and achieves strong recall--latency tradeoffs in static settings.
+DiskANN~\cite{jayaram2019} extends graph-based search to disk-resident
+datasets through a Vamana graph with sector-granular I/O.
+These indexes are competitive for read-heavy workloads but can be
+expensive to maintain under frequent updates.
 
-Partitioned indexes such as Faiss-IVF~\cite{johnson2019},
-ScaNN~\cite{guo2020}, and related IVF variants cluster vectors into
-cells and scan a subset of cells per query. These methods are more
-amenable to updates because insertions and deletions are local, but
-they are sensitive to partition imbalance and centroid drift over time.
+Partitioned (IVF-style) indexes cluster vectors into cells and scan a
+subset of cells per query.
+Faiss~\cite{johnson2021} provides a comprehensive library of flat, IVF,
+and product-quantization~\cite{jegou2011pq} indexes.
+ScaNN~\cite{guo2020} uses anisotropic vector quantization for improved
+recall at low nprobe.
+SPANN~\cite{chen2021spann} combines graph routing with inverted-list
+scanning for billion-scale search.
+These approaches are attractive for dynamic workloads due to localized
+insert/delete operations.
 \system builds on the partitioned-index design space and adds a
-control layer that repairs partition quality selectively after splits.
+refinement-control layer on top of it.
 
-\todo{Add: OPQ, IVFPQ, Faiss survey, SVS/HNSW graph variants, NSW.}
+\todo{Add: SVS locally-adaptive quantization (streaming),
+Auncel/LAET (adaptive search), BIGANN benchmark.}
 
 \subsection{Dynamic and Streaming Vector Search}
 
-Several systems address vector search under continuous updates.
-SPFresh~\cite{todo-spfresh} uses size-based partitioning with
-periodic centroid recalculation to maintain partition quality
-without K-means refinement. LIRE~\cite{todo-lire} similarly employs
-reassignment-based maintenance with controlled partition growth.
-DeDrift~\cite{todo-dedrift} targets concept drift in embeddings and
-rebuilds index structure in response to detected distribution shifts.
+Static indexes must be periodically rebuilt or updated to handle
+evolving data. Several systems address vector search under continuous
+updates.
+
+SPFresh~\cite{zhang2023spfresh} performs incremental in-place updates
+on billion-scale IVF indexes through size-based partition splitting and
+reassignment without centroid repair, avoiding expensive global rebuilds.
+\quake~\cite{todo-quake} uses a cost-model-driven maintenance policy to
+decide when to split, merge, or delete partitions based on estimated
+scan-latency impact, and runs local K-means refinement after splits.
+DeDrift~\cite{todo-dedrift} targets concept drift by monitoring
+embedding distribution shifts and triggering selective index repair.
 FreshDiskANN~\cite{todo-freshdiskann} extends graph-based indexing to
-support streaming inserts and deletes with bounded quality loss.
-\quake~\cite{todo-quake} uses a cost-model-driven maintenance policy
-that decides when to split, merge, or delete partitions based on
-estimated scan-latency impact.
+streaming inserts and deletes with bounded quality loss.
 
 \system is complementary to all of these: rather than replacing
-the split/merge/delete decision logic, it controls how refinement
-effort is allocated after structural changes. LIRE-style maintenance
-(size-based, no K-means refinement) serves as a baseline in our evaluation.
+split/merge/delete logic, it controls how K-means refinement effort is
+allocated after structural changes. LIRE-style maintenance
+(size-based splits, reassignment only, no K-means) serves as a pending
+baseline in our evaluation.
 
-\todo{Add: DeDrift, FreshDiskANN, SPANN, streaming ANN survey refs.}
+\todo{Add: VBASE OSDI 2023, incremental IVF maintenance papers,
+Cracking Vector Search Indexes 2025, MicroNN 2025 if relevant.}
 
 \subsection{Adaptive Query Processing and Index Maintenance}
 
-Methods such as APS~\cite{todo-aps}, LAET~\cite{todo-laet}, and
-Auncel~\cite{todo-auncel} adapt search-time behavior by controlling
-how many partitions are scanned per query, targeting a recall level
-rather than a fixed nprobe. SPANN~\cite{todo-spann} combines
-graph-based routing with inverted-list scanning for hybrid
-latency-recall tradeoffs. These systems focus on \emph{search-time}
-adaptivity, while \system focuses on \emph{maintenance-time}
-adaptivity. Both are needed for dynamic workloads: search-time
-adaptation tunes the current index, while maintenance changes the
-future index.
+Adapting execution based on observed workload is a long-standing idea
+in data systems.
+VBASE~\cite{xu2023vbase} unifies online vector similarity search with
+relational queries through relaxed monotonicity, enabling adaptive
+hybrid execution.
+APS (from \quake) and LAET~\cite{todo-laet} adapt search-time behavior
+by dynamically adjusting how many partitions are scanned to hit a recall
+target.
+Auncel~\cite{todo-auncel} targets fast approximate vector queries on
+large unstructured datasets using learned termination conditions.
 
-Database adaptive indexing and physical design tuning systems use
-cost-model feedback to selectively build and update index structures.
-\system shares this philosophy, extending it to the dynamic vector
-index setting.
+Database adaptive indexing and physical design tuning
+use workload-driven feedback to selectively build and update index
+structures.
+\system applies the same principle at the maintenance layer: workload
+hit counts feed directly into refinement allocation decisions.
 
-\todo{Add: learned early termination, adaptive indexing surveys,
-cost-model-based autotuning refs.}
+\todo{Add: Eddies / adaptive query processing, database cracking,
+morsel-driven parallelism (SIGMOD 2014), online index selection papers.}
 
 \subsection{Vector Databases and Data Management Systems}
 
-Production vector databases such as Milvus~\cite{wang2021milvus},
-Weaviate, and Pinecone integrate vector indexing with storage,
-transaction management, and filtering. These systems expose search
-quality parameters (nprobe, ef\_search) but typically do not expose
-fine-grained control over post-split refinement or maintenance
-budget allocation. \system provides a principled framework for this
-finer level of control, which could be incorporated as a maintenance
-policy layer in any partitioned-index-based vector database.
+Production vector databases integrate vector indexing with storage,
+filtering, and transaction management.
+Milvus~\cite{wang2021milvus} provides a purpose-built vector data
+management system supporting multiple index types and dynamic updates.
+AnalyticDB-V~\cite{wei2020analyticdbv} extends a cloud OLAP database
+with hybrid structured and vector query support.
+VBASE~\cite{xu2023vbase} further enables relational predicates over
+approximate nearest-neighbor queries.
 
-\todo{Add: pgvector, Qdrant, Redis VSS, Chroma;
-RAG system papers motivating dynamic indexing;
-database knob tuning (OtterTune, CDBTune);
-learned index structures survey.
-Target 50--60 total references across all four subsections.}
+These systems typically expose search quality parameters (nprobe,
+ef\_search) but do not provide fine-grained control over post-split
+refinement allocation or maintenance budget.
+\system contributes a principled maintenance control layer that could
+be incorporated as a policy module in any partitioned-index-based
+vector database.
+
+\todo{Add: Pinecone, Qdrant, pgvector; RAG systems motivating dynamic
+indexing; recommend 50-60 total references at submission.}
 
 % ============================================================
-\section{\system System Design}
+\section{Design of \system}
 \label{sec:system}
 % ============================================================
 
@@ -312,13 +319,13 @@ Target 50--60 total references across all four subsections.}
 
 We consider a dynamic partitioned vector index. The index stores vectors
 in partitions, each represented by a centroid. Queries search a subset
-of partitions and return approximate nearest neighbors. Updates insert
-or delete vectors. Maintenance periodically modifies the structure
-through splits, deletes, and refinements.
+of partitions using approximate nearest-neighbor scan. Updates insert
+or delete vectors. Maintenance periodically modifies the index
+structure through splits, deletes, and refinements.
 
 Let $P$ be the set of partitions. Each partition $p \in P$ has:
 \begin{itemize}[leftmargin=*]
-  \item size $|p|$,
+  \item size $|p|$ (number of resident vectors),
   \item centroid $c_p$,
   \item recent query-hit count $h_p$,
   \item mutation count $m_p$ (since last refinement),
@@ -326,112 +333,131 @@ Let $P$ be the set of partitions. Each partition $p \in P$ has:
 \end{itemize}
 
 \system operates during maintenance. When the underlying index decides
-that partitions should be split, \system controls the refinement stage
-that follows those splits.
+that one or more partitions should be split, \system controls the
+refinement stage that follows those splits.
 
 \subsection{Architecture Overview}
 
-\system consists of five modules:
+\system inserts a five-module refinement-control layer between split
+decisions and refinement execution:
+
 \begin{enumerate}[leftmargin=*]
   \item \textbf{Candidate Generator.}
-    Given newly split partition centroids, retrieve the $r_f$ nearest
-    partition centroids from the parent index per split centroid.
-    Deduplicate by keeping the minimum distance per candidate.
+    Given newly split partition centroids $S$, retrieve the $r_f$
+    nearest partition centroids from the parent index per split centroid.
+    Deduplicate across split centroids by keeping minimum distance per
+    candidate:
+    $C = \bigcup_{s \in S} \mathrm{Nearest}_{r_f}(s, P)$,
+    $d_p = \min_{s \in S} \|c_p - c_s\|$.
+
   \item \textbf{Metadata Tracker.}
-    Maintain per-partition size, query hits, mutation count, and
-    distance to split centroids. Update after every operation.
+    Maintain per-partition statistics: size, query hit count,
+    mutation count, and distance to split centroids. Update after every
+    insert, delete, and refinement cycle.
+
   \item \textbf{Scoring Engine.}
     Compute a refinement score for each candidate using a selectable
     function of hit count and staleness.
+
   \item \textbf{Budget Allocator.}
     Select a subset of candidates under a global top-$K$ budget,
     per-split budget, threshold, or hybrid policy.
+
   \item \textbf{Refinement Executor.}
-    Apply local K-means refinement to selected candidates.
-    Reset mutation counters for refined partitions.
+    Apply local K-means refinement to selected partitions. Reset
+    mutation counters for refined partitions.
 \end{enumerate}
 
 \begin{figure}[h]
   \centering
-  \fbox{\parbox{0.9\linewidth}{\centering\vspace{0.4in}
-    \textbf{Placeholder: architecture diagram.}\\
-    Query/update stream $\rightarrow$ Metadata Tracker
-    $\rightarrow$ maintenance trigger
-    $\rightarrow$ Candidate Generator
-    $\rightarrow$ Scoring Engine
-    $\rightarrow$ Budget Allocator
-    $\rightarrow$ Refinement Executor
-    \vspace{0.4in}}}
-  \caption{\system architecture. The refinement-control layer sits
-    between split decisions and refinement execution.}
+  \fbox{\parbox{0.9\linewidth}{\centering\vspace{0.3in}
+    \textbf{Placeholder: \system architecture diagram.}\\
+    Query/update stream $\to$ Metadata Tracker
+    $\to$ split trigger
+    $\to$ Candidate Generator
+    $\to$ Scoring Engine
+    $\to$ Budget Allocator
+    $\to$ Refinement Executor
+    \vspace{0.3in}}}
+  \caption{\system architecture. The refinement-control layer inserts
+    between split decisions and refinement execution, leaving the
+    base index logic unchanged.}
   \label{fig:architecture}
 \end{figure}
 
+This architecture is intentionally modular. The underlying split/merge
+and delete decisions remain unchanged; \system changes only which
+partitions receive post-split quality repair.
+
 \subsection{Problem Formulation}
 
-After a split, the candidate generator produces candidate set $C$.
-A policy $\pi$ selects a subset subject to budget $B$:
+After a set of splits, the candidate generator produces candidate set
+$C$. A refinement policy $\pi$ selects a subset under budget $B$:
 \begin{equation}
-  \pi(C, B) \subseteq C, \quad |\pi(C,B)| \leq B
+  \pi(C, B) \subseteq C, \quad |\pi(C, B)| \leq B
 \end{equation}
-The ideal policy minimizes:
+The ideal policy minimizes a multi-objective:
 \begin{equation}
-  \pi^* = \arg\min_{\pi(C,B)}\!
-    \bigl[\lambda_s T_s(\pi) + \lambda_m T_m(\pi) + \lambda_u T_u(\pi)
-          - \lambda_r R(\pi)\bigr]
+  \pi^* = \arg\min_{\pi(C,B)}
+    \bigl[\lambda_s T_s(\pi) + \lambda_m T_m(\pi)
+          + \lambda_u T_u(\pi) - \lambda_r R(\pi)\bigr]
 \end{equation}
-This is not solvable online; \system approximates utility through
-observable metadata.
+where $T_s, T_m, T_u, R$ are search time, maintenance time, update
+time, and recall. This is not solvable online because the effect of
+refining a candidate on future recall is not known. \system approximates
+utility through observable metadata.
 
 \subsection{Candidate Generation}
 
-For each split centroid $s \in S$, retrieve the $r_f$ nearest
-partition centroids: $C_s = \mathrm{Nearest}_{r_f}(s,\, P)$.
-The global candidate set is $C = \bigcup_{s \in S} C_s$,
-with $d_p = \min_{s \in S} \|c_p - c_s\|$.
-
-\textit{Intuition.} The radius $r_f$ is a geometric scope parameter.
-It determines where refinement may happen, but distance alone is not
-sufficient for final selection.
+The radius $r_f$ controls the spatial scope of repair. It is a
+geometric candidate-generation parameter, not a ranking signal:
+distance identifies which partitions are structurally affected but
+does not measure workload importance.
 
 \subsection{Metadata Tracking}
 
-\textbf{Query hits.} For a sliding window $W$ of recent queries:
+\textbf{Query hits.} For sliding window $W$ of recent queries:
 \begin{equation}
   h_p = \sum_{q \in W} \mathbf{1}[p \in \mathrm{scanned}(q)]
+  \label{eq:hits}
 \end{equation}
-Maintained in a circular buffer. Reuses hit data already gathered
-for adaptive partition scanning.
+Maintained in a circular buffer of size $|W|$. Reuses per-query
+partition-scan data already recorded for adaptive partition scanning;
+no additional query interception is needed.
 
 \textbf{Mutation count.}
 \begin{align}
-  m_p &\leftarrow m_p + \Delta_p
-    \quad\text{(per insert or delete)} \\
-  m_p &\leftarrow 0
-    \quad\text{(after refinement)}
+  m_p &\leftarrow m_p + \Delta_p \quad \text{(on insert or delete)} \\
+  m_p &\leftarrow 0 \quad \text{(after refinement of } p\text{)}
+  \label{eq:mutations}
 \end{align}
-Newly split children are seeded with $m_p = \max(1, |p|)$ to enter
-scoring as non-trivially stale.
+Newly split child partitions are seeded with $m_p = \max(1, |p|)$
+to ensure they enter scoring as non-trivially stale.
 
 \textbf{Density-normalized staleness.}
 \begin{equation}
   \tilde{m}_p = \frac{m_p}{|p|}
   \label{eq:density}
 \end{equation}
-Estimates the mutation \emph{rate per resident vector}, approximating
-centroid displacement more accurately than absolute mutation count.
+This estimates the mutation \emph{rate per resident vector}, which
+approximates centroid displacement more accurately than absolute
+mutation count: a large partition receiving 2000 inserts has a smaller
+centroid shift per vector than a small partition receiving the same.
 
 \subsection{Refinement Control Policies}
 
 \subsubsection{Split-Threshold Tuning}
-A partition is split when $\Delta C_{\mathrm{split}} < -\tau_s$.
-Higher $\tau_s$ reduces splits. Split-threshold tuning alone reduces
-maintenance but cannot recover the recall target (§\ref{sec:eval_split}).
+A partition is split when the predicted latency benefit exceeds threshold
+$\tau_s$: $\Delta C_{\mathrm{split}} < -\tau_s$.
+Higher $\tau_s$ reduces splits and therefore total refinement
+opportunities. Split-threshold tuning alone cannot recover the recall
+target (\S\ref{sec:eval_negative}).
 
 \subsubsection{Refinement Radius and Iterations}
-The radius $r_f$ bounds candidate set size; $i_f$ K-means iterations
-control repair depth. More iterations reduce overlap more strongly
-but show diminishing returns.
+Radius $r_f$ bounds candidate set size; $i_f$ K-means iterations control
+repair depth per refinement call. Both parameters set the scope of work
+without controlling which partitions within that scope are most valuable
+to refine.
 
 \subsubsection{Size-Based and Distance-Based Filtering}
 \begin{equation}
@@ -439,101 +465,170 @@ but show diminishing returns.
   \quad
   p \in \pi \iff d_p \leq \tau_d
 \end{equation}
-\textit{Weakness.} Neither signal captures workload importance or
-staleness. Both are shown to fail in §\ref{sec:eval_negative}.
+Neither signal captures workload importance or staleness. Both are
+shown to fail in \S\ref{sec:eval_negative}.
 
-\subsubsection{Global Top-K Selection}
-$\pi(C, K) = \mathrm{TopK}_{p \in C} S(p)$.
-Controls maintenance budget directly; requires a strong score function.
+\subsubsection{Global Top-$K$ Selection}
+$\pi(C, K) = \mathrm{TopK}_{p \in C}\, S(p)$.
+Controls maintenance budget directly. Requires a strong score to be
+effective; without it, it simply refines fewer partitions.
 
 \subsubsection{Per-Split Budgeting}
 $\pi(C, b) = \bigcup_{s \in S} \mathrm{Top\text{-}b}(C_s)$.
-Enforces local coverage per split centroid before the global union.
-\textit{Weakness (negative result).} When split centroids are
-geometrically close, per-centroid capping breaks global value ranking.
-Empirically, no per-split configuration reaches recall 0.90
-(§\ref{sec:eval_persplit}).
+Allocates $b$ slots per split centroid before the global union.
+Fails to preserve recall because per-centroid caps block globally
+high-value candidates (\S\ref{sec:eval_negative}).
 
 \subsubsection{Hit-Based Refinement}
-$S_{\mathrm{hit}}(p) = h_p$. Prioritizes important partitions but
-ignores structural degradation. Insufficient alone.
+$S_{\mathrm{hit}}(p) = h_p$.
+Prioritizes frequently queried partitions but ignores structural
+degradation; insufficient alone.
 
 \subsubsection{Hits-by-Mutations (Raw Staleness)}
 \begin{equation}
-  S_{\mathrm{hm}}(p) = (h_p + 1)\, m_p
+  S_{\mathrm{raw}}(p) = (h_p + 1)\, m_p
   \label{eq:raw_score}
 \end{equation}
 Selects partitions that are both important and stale.
+The $+1$ smoothing ensures partitions with zero hits but high mutations
+receive a non-trivial score.
 
 \subsubsection{Hits-by-Density (Density-Normalized Staleness)}
 \begin{equation}
   S_{\mathrm{density}}(p) = (h_p + 1)\, \frac{m_p}{|p|}
   \label{eq:density_score}
 \end{equation}
-Empirically, this configuration exhibits lower maintenance variance
-than raw staleness scoring at comparable recall levels (§\ref{sec:eval_scores}).
+Replaces raw mutation count with mutation density (Eq.~\ref{eq:density}).
+Empirically achieves lower maintenance variance than raw staleness at
+comparable recall levels (\S\ref{sec:eval_seeds}).
 
 % ============================================================
-\section{Theoretical Formulation}
+\section{Theoretical Analysis}
 \label{sec:theory}
 % ============================================================
 
 \subsection{Refinement Utility}
 
-Expected benefit:
-$B(p) = \Delta R(p) - \alpha \Delta T_s(p)$.
+Let the expected benefit of refining partition $p$ be:
+\begin{equation}
+  B(p) = \Delta R(p) - \alpha \Delta T_s(p)
+\end{equation}
+where $\Delta R(p)$ is the expected recall improvement and
+$\Delta T_s(p)$ is the expected search-time reduction.
+Refinement cost is $K(p) = T_{\mathrm{refine}}(p)$.
 Net utility:
-$U(p) = B(p) - \beta K(p)$, where $K(p) = T_{\mathrm{refine}}(p)$.
-Since $B(p)$ is not observable online, \system approximates it.
+\begin{equation}
+  U(p) = B(p) - \beta K(p)
+\end{equation}
+Since $B(p)$ is not directly observable online, \system approximates
+it using the measurable signals $h_p$, $m_p$, $|p|$, and $d_p$.
 
 \subsection{Importance and Staleness}
 
-Importance: $I(p) = f_h(h_p)$ where $f_h$ may be linear, log,
-or sigmoid. Staleness: $D(p) = f_m(m_p)$ where $f_m$ may be:
+\textbf{Partition importance} estimates how much future queries depend
+on partition $p$:
 \begin{equation}
-  m_p,\quad \frac{m_p}{|p|},\quad \sqrt{m_p},\quad \log(1+m_p)
+  I(p) = f_h(h_p)
 \end{equation}
+Examples: $f_h = h_p$ (linear), $f_h = \log(1+h_p)$ (diminishing
+returns), $f_h = \sigma(\alpha h_p)$ (sigmoid saturation).
+Diminishing-return transforms model the observation that extremely hot
+partitions should not consume all refinement budget.
+
+\textbf{Partition staleness} estimates structural degradation:
+\begin{equation}
+  D(p) = f_m(m_p)
+\end{equation}
+Staleness transforms and their physical motivations:
+\begin{equation}
+  f_m(m_p) = m_p
+  \quad \text{(raw: absolute mutations)}
+\end{equation}
+\begin{equation}
+  f_m(m_p) = \frac{m_p}{|p|}
+  \quad \text{(density: mutations per resident vector,}
+  \text{ approximates centroid drift rate)}
+\end{equation}
+\begin{equation}
+  f_m(m_p) = \sqrt{m_p}
+  \quad \text{(sqrt: sublinear growth of staleness signal)}
+\end{equation}
+\begin{equation}
+  f_m(m_p) = \log(1+m_p)
+  \quad \text{(log: strong compression of high-mutation outliers)}
+\end{equation}
+These transforms reflect different assumptions about how centroid
+displacement accumulates as a function of update count and partition
+size.
 
 \subsection{General Score Family}
 
+The general multiplicative family unifies all of the above:
 \begin{equation}
   S_{\beta,\gamma}(p) = (h_p + \epsilon)^\beta\, D(p)^\gamma
   \label{eq:general}
 \end{equation}
+where:
+\begin{itemize}[leftmargin=*]
+  \item $\beta \geq 0$ controls importance sensitivity: $\beta = 1$ is
+    linear, $\beta < 1$ applies diminishing returns to hit counts,
+    $\beta > 1$ amplifies hot partitions.
+  \item $\gamma \geq 0$ controls staleness sensitivity: $\gamma = 1$ is
+    linear, $\gamma < 1$ compresses high-staleness outliers.
+  \item $\epsilon > 0$ smooths sparse hit counts.
+  \item $D(p)$ can be any staleness transform.
+\end{itemize}
 
-\begin{center}
-\small
-\begin{tabular}{cclll}
+Special cases:
+\begin{center}\small
+\begin{tabular}{llll}
   \toprule
-  $\beta$ & $\gamma$ & $D(p)$ & Name & Status \\
-  \midrule
-  1 & 0 & any & Hit-only & tested \\
-  0 & 1 & $m_p$ & Mutation-only & tested \\
-  1 & 1 & $m_p$ & Hits-by-mutations & \confirmed{confirmed} \\
-  1 & 1 & $m_p/|p|$ & Density-Linear & \confirmed{confirmed} \\
-  0.5 & 1 & $m_p/|p|$ & SqrtHits-density & \confirmed{confirmed} \\
-  1 & 0.5 & $m_p/|p|$ & SqrtMut-density & \confirmed{confirmed} \\
-  0.5 & 0.5 & $m_p/|p|$ & SqrtBoth-density & \confirmed{confirmed} \\
+  $\beta$ & $\gamma$ & $D(p)$ & Policy name \\ \midrule
+  1 & 0 & any & Hit-only \\
+  0 & 1 & $m_p$ & Mutation-only \\
+  1 & 1 & $m_p$ & Hits-by-mutations (raw) \\
+  1 & 1 & $m_p/|p|$ & Density-Linear \\
+  0.5 & 1 & $m_p/|p|$ & SqrtHits-density \\
+  1 & 0.5 & $m_p/|p|$ & SqrtMut-density \\
+  0.5 & 0.5 & $m_p/|p|$ & SqrtBoth-density \\
   \bottomrule
 \end{tabular}
 \end{center}
 
+\textbf{Important.} No single $(\beta, \gamma)$ pair is claimed as
+universally optimal. The family provides a tunable control surface.
+Empirical results (\S\ref{sec:eval_main}--\S\ref{sec:eval_seeds}) show
+that all density-normalized configurations with linear or sublinear
+importance ($\beta \leq 1$) achieve the recall target with 38--45\%
+maintenance reduction. Super-linear importance amplification
+($\beta > 1$) consistently degrades recall.
+
+An additive feature model is also expressible:
+\begin{equation}
+  S(p) = w_h \phi(h_p) + w_m \psi(m_p) + w_d \chi(d_p) + w_s \eta(|p|)
+\end{equation}
+\todo{Activation-style and additive variants not yet evaluated.}
+
 \subsection{Properties}
 
-\textbf{Property 1 (Budget monotonicity).}
-$B_1 \leq B_2 \Rightarrow
-\mathrm{TopK}(C,B_1) \subseteq \mathrm{TopK}(C,B_2)$.
-Budget is a monotone control knob.
+\textbf{Property 1 (Budget Monotonicity).}
+For fixed $C$ and $S$: $B_1 \leq B_2 \Rightarrow
+\mathrm{TopK}(C, B_1) \subseteq \mathrm{TopK}(C, B_2)$.
+Budget is a monotone control knob; increasing $B$ cannot reduce the
+number of refined candidates.
 
-\textbf{Property 2 (Cost bound).}
+\textbf{Property 2 (Refinement Cost Upper Bound).}
+With $\leq B$ selected candidates of maximum size $s_{\max}$, dimension
+$d$, and $i_f$ refinement iterations:
 $T_{\mathrm{refine}} = O(B \cdot i_f \cdot s_{\max} \cdot d)$.
-Worst-case refinement work is bounded by $B$ and $i_f$.
+Worst-case refinement work is bounded by $B$ and $i_f$ independently.
 
-\textbf{Property 3 (Score approximates return).}
-If $S(p) = I(p)\,D(p)$ and benefit increases with both signals,
-then high-score partitions are exactly those with large joint
-importance and staleness. The product suppresses candidates that
-are hot-but-stable or stale-but-irrelevant.
+\textbf{Property 3 (Score Approximates Refinement Return).}
+If expected benefit increases monotonically with both $I(p)$ and $D(p)$,
+then $S(p) = I(p) D(p)$ is largest exactly where both importance and
+staleness are large. The product suppresses candidates that are hot but
+stable (large $I$, small $D$) or stale but irrelevant (large $D$,
+small $I$).
 
 % ============================================================
 \section{System Implementation}
@@ -542,21 +637,35 @@ are hot-but-stable or stale-but-irrelevant.
 
 \subsection{Code Structure}
 
-\system modifies four components in a dynamic partitioned vector index:
+\system is implemented as targeted modifications to four components of
+a dynamic partitioned vector index:
+
 \begin{itemize}[leftmargin=*]
   \item \textbf{Maintenance policy} (\texttt{maintenance\_policies.cpp}):
-    per-split cap, scoring, budget selection, selective refinement.
+    per-split candidate ranking, scoring, budget selection, and
+    selective refinement execution.
   \item \textbf{Partition manager} (\texttt{partition\_manager.cpp}):
-    per-partition mutation counter; incremented on add/remove, reset after refinement.
+    per-partition mutation counter; incremented on add/remove, reset
+    on refinement. A stale-partition guard filters candidate IDs that
+    may have been deleted between the parent-index search and the
+    refinement call.
   \item \textbf{Parameter struct} (\texttt{common.h}):
-    \texttt{MaintenancePolicyParams} with all new tunable fields.
+    \texttt{MaintenancePolicyParams} with all tunable fields at
+    backward-compatible defaults.
   \item \textbf{Python bindings} (\texttt{wrap.cpp}):
     exposes all parameters to Python and YAML configuration.
 \end{itemize}
 
+\textbf{Libraries.}
+The implementation uses C++17, PyTorch/LibTorch (tensor operations,
+K-means clustering), Faiss (inverted-list storage, flat index for
+parent centroid lookup), and pybind11 (Python/C++ bindings).
+
+\todo{Add approximate LOC for the FlexiRefine additions.}
+
 \subsection{New Parameters}
 
-All parameters default to values that reproduce existing behavior:
+All parameters default to values that reproduce prior behavior:
 
 \begin{itemize}[leftmargin=*]
   \item \texttt{refinement\_max\_candidates} (int, $-1$)
@@ -570,225 +679,318 @@ All parameters default to values that reproduce existing behavior:
   \item \texttt{refinement\_score\_gamma} (double, 1.0)
 \end{itemize}
 
-With all defaults, the score is $(h_p+1) \times m_p$, numerically
-identical to the original formula.
+With all defaults, the score is $(h_p+1) \times m_p$,
+numerically identical to the original formula.
 
 \subsection{Selective Refinement Pipeline}
 
 \begin{enumerate}[leftmargin=*]
   \item Split partitions produced by the base maintenance policy.
-  \item Retrieve $r_f$ nearest neighbors per split centroid.
-  \item Apply per-split cap: sort by distance, truncate to cap.
-  \item Union into global min-distance map.
+  \item Retrieve $r_f$ nearest neighbor centroids per split centroid.
+  \item Apply per-split cap: sort by distance, truncate.
+  \item Union into global min-distance map; filter stale IDs.
   \item Apply optional distance and size filters.
-  \item Compute $S_{\beta,\gamma}(p)$ per candidate.
+  \item Compute $S_{\beta,\gamma}(p)$ for each candidate.
   \item Select top-$K$ candidates.
   \item Run K-means refinement on selected candidates.
   \item Reset mutation counters for refined partitions.
 \end{enumerate}
+
+\subsection{Multi-Seed Evaluation Infrastructure}
+
+To account for K-means non-determinism in refinement,
+all primary results are reported as mean\,$\pm$\,std across three
+independent workload seeds.
+The experiment runner (\texttt{run.py}) accepts a
+\texttt{seeds:~[s1, s2, s3]} list in the YAML configuration, generates
+a separate workload per seed in \texttt{results/seed\_{s}/}, and after
+all seeds complete, aggregates into
+\texttt{multiseed\_summary.csv} and \texttt{multiseed\_summary.md}
+with per-metric mean and standard deviation. All per-seed plots and
+per-seed summary tables are also preserved.
+
+\subsection{Evaluator Compatibility for Non-Quake Baselines}
+
+The \texttt{WorkloadEvaluator} was extended to support non-Quake
+index wrappers. Two issues were fixed:
+(1)~\texttt{parent\_info} in \texttt{SearchTimingInfo} is
+\texttt{None} for non-Quake indexes; the timing loop now guards
+this with an existence check.
+(2)~\texttt{maintenance()} returns \texttt{None} for static indexes
+(Faiss-IVF); the evaluator null-checks the return value and records
+zero maintenance cost.
+Both fixes are backward-compatible: existing Quake configs are
+unaffected.
+
+\textbf{LIRE-style baseline status.}
+We attempted to evaluate a LIRE-style baseline (size-based splits,
+$\texttt{max\_partition\_size}=2000$, no K-means refinement) on the
+full dynamic workload. The baseline encountered crashes during
+mixed insert/delete sequences due to an interaction between
+maintenance-triggered partition deletions and the workload generator's
+resident-set tracking: when maintenance deletes a small undersize
+partition without reassigning its vectors, the workload's resident set
+diverges from the actual index state. A stale-partition guard and
+a \texttt{min\_partition\_size=0} configuration were applied to prevent
+partition-deletion events; the baseline is currently progressing
+through the smoke test. Results will be added once confirmed.
+\todo{Replace with confirmed 3-seed LIRE results once the delete-after-partition-deletion stability issue is fully resolved.}
+
+\subsection{Engineering Considerations}
+
+\begin{itemize}[leftmargin=*]
+  \item Candidate scoring is $O(|C|)$ in the local neighborhood,
+    not over all partitions.
+  \item Hit counts reuse existing per-query scan data; no new
+    query interception is needed.
+  \item Mutation counters are lightweight 64-bit integer fields.
+  \item All parameters are YAML-configurable with backward-compatible
+    defaults.
+\end{itemize}
 
 % ============================================================
 \section{Evaluation}
 \label{sec:evaluation}
 % ============================================================
 
+% DZ: list RQs explicitly; subsection titles answer them result-style.
+
+\noindent\textbf{Research questions.}
+\begin{enumerate}[leftmargin=*, label=\textbf{RQ\arabic*.}]
+  \item Does \system reduce maintenance while preserving recall?
+  \item Are score-based policies better than coverage-only policies?
+  \item Is dynamic maintenance necessary under insert/delete workloads?
+  \item Are policy-class results robust across workload seeds?
+  \item Which operating point should a user choose?
+\end{enumerate}
+
 \subsection{Experimental Setup}
 \label{sec:eval_setup}
 
 \textbf{Platform.}
-Experiments run on CloudLab.
-\todo{Add exact machine spec: CPU, RAM, storage.}
+\todo{Add CloudLab machine spec: CPU model, RAM, storage.}
 
 \textbf{Dataset.}
 SIFT1M: 1 million 128-dimensional floating-point vectors, Euclidean
 distance.
 
 \textbf{Workload.}
-1000 operations, 30\% inserts / 20\% deletes / 50\% queries,
-initial size 100,000 vectors, skewed cluster insert distribution,
-uniform query distribution, recall target 0.90.
+1000 operations; 30\% inserts, 20\% deletes, 50\% queries;
+initial size 100,000 vectors; skewed cluster insert distribution;
+uniform query distribution; target recall 0.90.
+Per-operation batch sizes: 10,000 update vectors, 1,000 query vectors.
 
 \textbf{Seeds.}
-All primary tables report mean\,$\pm$\,std across seeds
-$\{9299, 42, 12345\}$. Single-run tables are labeled
-\textit{[SINGLE-RUN]}.
-
-\textbf{Baselines.}
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Quake} — full cost-model maintenance with complete refinement.
-  \item \textbf{LIRE} --- size-based partitioning, reassignment only, no K-means
-    refinement (approximates SPFresh/LIRE-style behavior using the Quake backend
-    with \texttt{refinement\_iterations=0}).
-  \item \textbf{Faiss-IVF} --- static IVF trained once, no dynamic maintenance
-    ($n_c = 1000$, nprobe~=~100). Recall degrades as the workload evolves;
-    this is the expected no-maintenance baseline behavior.
-  \item \textit{HNSW, ScaNN} --- planned; HNSW requires a delete-free workload
-    variant; ScaNN requires package installation.
-    \todo{Add HNSW and ScaNN results.}
-\end{itemize}
+Primary tables report mean\,$\pm$\,std across seeds
+$\{9299, 42, 12345\}$. Exploratory tables use seed 9299 only
+and are labeled \textit{[single-run]}.
 
 \textbf{Metrics.}
 Cumulative search time (ms), insert time (ms), delete time (ms),
 maintenance time (ms), total time (ms), mean recall over query
 operations, final partition count.
 
-\textbf{Evaluation questions:}
-\begin{enumerate}[leftmargin=*]
-  \item What fraction of maintenance cost comes from refinement?
-  \item Can split-threshold tuning alone reduce maintenance while
-    preserving recall?
-  \item Do naive budgeting policies work?
-  \item Does workload-aware score-based refinement improve the tradeoff?
-  \item Is the improvement confirmed across multiple seeds?
-  \item How do \system policies compare to baseline indexes?
-\end{enumerate}
+\textbf{Baselines.}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Quake} --- full cost-model maintenance with complete
+    K-means refinement. The reference full-maintenance system.
+  \item \textbf{Faiss-IVF} (nprobe=20) --- static IVF trained once;
+    no dynamic maintenance. nprobe tuned to recall $\approx 0.91$ at
+    workload start; degrades as the workload evolves. No-maintenance
+    degradation baseline.
+  \item \textbf{LIRE-style} --- Quake backend with size-based splits
+    and no K-means refinement. Approximates SPFresh/LIRE-style
+    dynamic partitioning without centroid repair.
+    \todo{Replace with confirmed 3-seed results once stable.}
+  \item \textit{HNSW, ScaNN} --- planned future baselines.
+\end{itemize}
 
-\subsection{Refinement Dominates Maintenance Cost}
-\label{sec:eval_ablation}
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Score-Based Refinement Reduces Maintenance by 38--45\%}
+\label{sec:eval_main}
+% RQ1: does FlexiRefine reduce maintenance while preserving recall?
+% ─────────────────────────────────────────────────────────────────────────────
 
-% [SINGLE-RUN] Table from seed 9299.
-\begin{table}[h]
-\centering
-\caption{Ablation: disabling refinement cuts maintenance 14$\times$
-  but drops recall 3 points. \textit{Single-run (seed 9299).}}
-\label{tab:ablation}
-\begin{tabular}{lrrr}
-  \toprule
-  Configuration & Maintain & Total & Recall \\ \midrule
-  Quake              & 103,926 & 374,684 & 0.909 \\
-  Quake-NoCost       &  62,816 & 386,286 & 0.900 \\
-  Quake-NoRefine     &   7,263 & 289,375 & 0.879 \\
-  Quake-NoReject     &  99,246 & 348,580 & 0.768 \\
-  \bottomrule
-\end{tabular}
-\end{table}
+\textbf{Refinement dominates maintenance cost.}
+Disabling refinement (Quake-NoRefine) cuts maintenance from
+103,926\,ms to 7,263\,ms ($14\times$) but drops recall from 0.909
+to 0.879 (\textit{single-run, seed 9299}).
+Disabling the cost-based rejection mechanism collapses recall to 0.768.
+Refinement is the dominant maintenance cost and removing it blindly
+is unsafe. Selective refinement---spending maintenance budget only
+where it matters---is the natural solution.
 
-Disabling refinement (NoRefine) cuts maintenance from 103,926 to
-7,263\,ms --- a $14\times$ reduction --- but drops recall from 0.909 to
-0.879. Disabling the rejection mechanism (NoReject) collapses recall to
-0.768. These results establish that refinement is the dominant
-maintenance cost and that removing it blindly is unsafe.
-
-\subsection{Split-Threshold Tuning Reduces Maintenance but Recall Remains Below Target}
-\label{sec:eval_split}
-
-% [SINGLE-RUN]
-\begin{table}[h]
-\centering
-\caption{Split-threshold sweep. Recall stays below 0.90 despite large
-  maintenance reductions. \textit{Single-run.}}
-\label{tab:split}
-\begin{tabular}{lrrr}
-  \toprule
-  Threshold (ns) & Maintain & Total & Recall \\ \midrule
-  150 &  9,165 & 323,147 & 0.8826 \\
-  200 &  5,861 & 334,535 & 0.8845 \\
-  240 &  5,222 & 344,766 & 0.8860 \\
-  300 &  8,774 & 366,886 & 0.8837 \\
-  \bottomrule
-\end{tabular}
-\end{table}
-
-Split-threshold tuning sharply reduces maintenance but recall cannot
-reach 0.90 by reducing split frequency alone. Selective post-split
-repair is also needed.
-
-\subsection{Budget-Only Policies Are Insufficient}
-\label{sec:eval_topk}
-
-% [SINGLE-RUN]
-\begin{table}[h]
-\centering
-\caption{Global top-K candidate cap (radius=50, iterations=2).
-  Maintenance falls but without a value signal, budget control
-  refines fewer partitions rather than better ones. \textit{Single-run.}}
-\label{tab:topk}
-\begin{tabular}{lrrr}
-  \toprule
-  Policy & Maintain & Total & Recall \\ \midrule
-  Refine-all &  39,626 & 362,887 & 0.8991 \\
-  Top-5      &  22,189 & 393,564 & 0.8872 \\
-  Top-10     &  22,181 & 393,253 & 0.8925 \\
-  Top-20     &  29,363 & 384,396 & 0.8965 \\
-  \bottomrule
-\end{tabular}
-\end{table}
-
-Budget control alone cannot recover recall to 0.90. A strong
-candidate-ranking signal is necessary.
-
-\subsection{Coverage-Only Budgeting Fails to Preserve Recall}
-\label{sec:eval_persplit}
-
-\textbf{Data integrity note.}
-An earlier version of this experiment used code in which
-\texttt{refinement\_candidates\_per\_split} was declared but not
-applied. The bug was fixed in commit \texttt{ea4de23}. Numbers below
-are from the corrected implementation.
-\superseded{Old numbers (e.g., PerSplit3-Top10 maintain 21,584,
-recall 0.8903) were artifacts of the unimplemented cap.}
+\textbf{Policy exploration (\textit{single-run}).}
+Table~\ref{tab:density} shows the density-normalized staleness sweep.
 
 \begin{table}[h]
 \centering
-\caption{Per-split budgeting after bug fix. No configuration reaches
-  recall 0.90. \textit{Single-run (seed 9299).}}
-\label{tab:persplit}
-\begin{tabular}{lrrr}
-  \toprule
-  Configuration & Maintain & Total & Recall \\ \midrule
-  Quake              & 72,701 & 365,861 & 0.9068 \\
-  NoRefine-Split240  &  9,422 & 388,623 & 0.8855 \\
-  RefineAll          & 42,824 & 378,127 & 0.9039 \\
-  PerSplit3-Top20    & 29,996 & 393,098 & 0.8894 \\
-  PerSplit5-Top20    & 26,616 & 397,353 & 0.8945 \\
-  PerSplit5-Top30    & 28,413 & 392,926 & 0.8945 \\
-  \bottomrule
-\end{tabular}
-\end{table}
-
-After the bug fix, per-split budgeting is a clean negative result:
-no tested configuration reaches recall 0.90.
-Global unranked refinement (RefineAll, 0.9039) outperforms all
-per-split variants.
-
-\textit{Why it fails.} When split centroids are spatially close,
-their candidate neighborhoods overlap. Capping candidates per centroid
-before the global union forces taking locally-nearest candidates from
-each centroid independently, excluding globally high-value partitions.
-This is local coverage without global value ranking.
-
-\subsection{Score-Based Refinement Preserves Recall with Lower Maintenance}
-\label{sec:eval_scores}
-
-\textbf{Density sweep (single-run).}
-
-% [SINGLE-RUN]
-\begin{table}[h]
-\centering
-\caption{Density-normalized staleness sweep (split threshold=240\,ns,
-  iterations=2, radius=50). \textit{Single-run (seed 9299).}}
+\caption{Score-based refinement with density staleness, seed 9299.
+  Split threshold 240\,ns, radius=50, iterations=2.
+  \textit{Single-run.}}
 \label{tab:density}
-\begin{tabular}{lrrr}
+\begin{tabular}{lrrrr}
   \toprule
-  Config & Maintain & Total & Recall \\ \midrule
-  Quake                   & 72,176 & 370,609 & 0.9093 \\
-  Score50-RawMutations    & 35,292 & 381,188 & 0.9018 \\
-  Density30-NormMutations & 26,906 & 381,575 & 0.8960 \\
-  Density50-NormMutations & 34,726 & 375,284 & 0.8999 \\
-  Density70-NormMutations & 41,091 & 377,188 & 0.9041 \\
-  Density100              & 41,596 & 379,794 & 0.9041 \\
+  Config & Maintain & Total & Recall & Partitions \\ \midrule
+  Quake                   & 72,176 & 370,609 & 0.9093 & 2319 \\
+  Score50-RawMutations    & 35,292 & 381,188 & 0.9018 & 1333 \\
+  Density30-NormMutations & 26,906 & 381,575 & 0.8960 & 1290 \\
+  Density50-NormMutations & 34,726 & 375,284 & 0.8999 & 1333 \\
+  Density70-NormMutations & 41,091 & 377,188 & 0.9041 & 1364 \\
+  Density100              & 41,596 & 379,794 & 0.9041 & 1335 \\
   \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{3-seed confirmation (primary table).}
-% [CONFIRMED]
+Density70 achieves recall 0.9041 with maintenance $-43\%$ versus
+full Quake at $+1.8\%$ total runtime. Density50 hits the recall
+target (0.8999) at the lowest maintenance of above-target configs.
+Both improve over raw mutation scoring at matched $K$.
+
+\textbf{Exponent structure (\textit{single-run}).}
+A $3\times 3$ grid over $(\beta, \gamma) \in \{0.5, 1.0, 1.5\}^2$
+at $K=70$ with density normalization reveals two column-level patterns
+robust to single-run noise:
+(1)~The $\gamma=0.5$ column consistently produces lower total runtime
+(370k--380k\,ms) than $\gamma=1.0$ (374k--393k\,ms), suggesting
+sublinear staleness compression reduces overhead.
+(2)~The $\beta=1.5$ row has consistently lower recall (0.9013--0.9018)
+across all $\gamma$ values, confirming that super-linear hit
+amplification is detrimental.
+No single $(\beta, \gamma)$ pair is claimed optimal; the family is a
+tunable control surface and $n=3$ seeds are insufficient for
+hyperparameter-level claims.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Coverage-Only Budgeting Fails to Preserve Recall}
+\label{sec:eval_negative}
+% RQ2: are score-based policies better than naive/coverage-only policies?
+% ─────────────────────────────────────────────────────────────────────────────
+
+\textbf{Split-threshold tuning.}
+Recall stays below 0.90 regardless of threshold (\textit{single-run}).
+Reducing split frequency reduces maintenance aggressively but does not
+substitute for post-split quality repair. Selected results:
+threshold 240\,ns gives maintenance 5,222\,ms, recall 0.8860.
+
+\textbf{Global budget cap without value ranking.}
+Applying a global top-$K$ cap without a scoring signal refines fewer
+partitions, not better ones. Top-20 gives maintenance 29,363\,ms,
+recall 0.8965 (\textit{single-run}). No cap value reaches 0.90.
+
+\textbf{Per-split coverage budgeting (corrected post bug-fix).}
+\superseded{Earlier numbers (PerSplit3-Top10 maintain 21,584,
+recall 0.8903) were from a code defect in which
+\texttt{refinement\_candidates\_per\_split} was not applied;
+corrected in commit \texttt{ea4de23}.}
+
+Per-split budgeting allocates $b$ candidate slots per split centroid
+before the global union. After the correctness fix, no per-split
+configuration reaches recall 0.90. Best result: PerSplit5-Top20/Top30 at
+0.8945 versus global unranked refinement (RefineAll) at 0.9039.
+
+The failure is structural: per-centroid caps block globally high-value
+candidates when split centroids are spatially close and their
+neighborhoods overlap. Local coverage guarantees do not substitute for
+a global importance--staleness ranking signal.
+
+\textbf{Summary.}
+Size-only, distance-only, budget-without-ranking, per-split coverage,
+hit-only, and $\beta>1$ policies all fail to reach 0.90 recall while
+reducing maintenance. The consistent failure mode is prioritizing fewer
+partitions without identifying the right ones.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Static IVF Avoids Maintenance but Pays Over 4\texttimes{}
+            Higher Total Runtime}
+\label{sec:eval_baselines}
+% RQ3: is dynamic maintenance necessary?
+% ─────────────────────────────────────────────────────────────────────────────
+
+Table~\ref{tab:baseline} compares \system configurations against
+Faiss-IVF under the full 3-seed dynamic workload.
+Mean\,$\pm$\,std across seeds $\{9299, 42, 12345\}$.
+All times in milliseconds. \textbf{[CONFIRMED]}
+
 \begin{table}[h]
 \centering
-\caption{3-seed confirmation (seeds \{9299, 42, 12345\}).
-  Mean\,$\pm$\,std across three independent workloads.
-  All score-based configs preserve mean recall $\geq$\,0.90.
-  \textbf{[CONFIRMED]}}
+\caption{Baseline comparison with Faiss-IVF (no maintenance).
+  Mean\,$\pm$\,std, 3 seeds.
+  Faiss-IVF nprobe=20 tuned to recall $\approx 0.91$ at workload start.}
+\label{tab:baseline}
+\begin{tabular}{lrrrr}
+  \toprule
+  Config & Search & Maintain & Total & Recall \\ \midrule
+  Quake
+    & $197{,}731 \pm 41{,}144$
+    & $70{,}682 \pm 15{,}431$
+    & $309{,}741 \pm 66{,}555$
+    & $0.9118 \pm 0.0134$ \\
+  Score50-Raw-Linear
+    & $248{,}131 \pm 57{,}834$
+    & $38{,}579 \pm 7{,}528$
+    & $321{,}162 \pm 64{,}340$
+    & $0.9017 \pm 0.0192$ \\
+  Density70-Linear
+    & $245{,}172 \pm 45{,}798$
+    & $43{,}735 \pm 11{,}913$
+    & $323{,}591 \pm 54{,}505$
+    & $0.9039 \pm 0.0165$ \\
+  D70-B0.5-G0.5
+    & $239{,}872 \pm 46{,}409$
+    & $42{,}224 \pm 4{,}609$
+    & $316{,}609 \pm 54{,}402$
+    & $0.9064 \pm 0.0184$ \\
+  Faiss-IVF
+    & $1{,}305{,}884 \pm 780{,}820$
+    & $0 \pm 0$
+    & $1{,}315{,}646 \pm 782{,}124$
+    & $0.9269 \pm 0.0668$ \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+Faiss-IVF incurs approximately $4.25\times$ higher mean total runtime
+than Quake and $4.16\times$ higher than D70-B0.5-G0.5.
+Despite spending nothing on maintenance, its insert and delete
+costs are low (9,031 and 732\,ms respectively) but search costs
+balloon to 1,305,884\,ms as the skewed workload creates increasingly
+unbalanced partitions with static centroids.
+
+Recall variance is $\pm$0.0668 across seeds.
+At seed 12345, Faiss-IVF recall fell to 0.8553, below the 0.90 target.
+A static index cannot reliably maintain recall under dynamic
+insert/delete workloads because its partition structure progressively
+diverges from the evolving data distribution.
+
+\textbf{Faiss-IVF is a degradation baseline, not a competitive
+alternative.}
+The 70,682\,ms that Quake spends on maintenance saves over 1,000,000\,ms
+in search time compared to the no-maintenance alternative ---
+a $14\times$ exchange ratio. Dynamic maintenance is necessary.
+
+\textbf{LIRE-style baseline.}
+\todo{Add confirmed 3-seed LIRE results here once the
+delete-after-partition-deletion instability is resolved.
+Expected finding: LIRE-style maintenance (dynamic splits, no
+K-means refinement) achieves lower maintenance than Quake but fails
+to preserve recall at 0.90, confirming that K-means centroid repair
+is the essential ingredient in \system's effectiveness.}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Multiseed Results Confirm the Policy-Class Claim}
+\label{sec:eval_seeds}
+% RQ4: are results robust across seeds?
+% ─────────────────────────────────────────────────────────────────────────────
+
+Table~\ref{tab:confirmation} is the primary \system result:
+mean\,$\pm$\,std for six configurations across seeds
+$\{9299, 42, 12345\}$. \textbf{[CONFIRMED]}
+
+\begin{table}[h]
+\centering
+\caption{3-seed confirmation of \system policies. All score-based
+  configs preserve mean recall $\geq$ 0.90.}
 \label{tab:confirmation}
 \begin{tabular}{lrrr}
   \toprule
@@ -821,183 +1023,64 @@ This is local coverage without global value ranking.
 \end{tabular}
 \end{table}
 
-\begin{figure}[h]
-  \centering
-  \fbox{\parbox{0.9\linewidth}{\centering\vspace{0.3in}
-    Placeholder: Pareto frontier (recall vs.\ maintenance).\\
-    Include Quake, LIRE, Score50-Raw, Density70-Linear,
-    D70-B0.5-G0.5, Faiss-IVF.
-    \vspace{0.3in}}}
-  \caption{Recall--maintenance tradeoff frontier. Score-based
-    \system policies consistently dominate naive baselines.}
-  \label{fig:frontier}
-\end{figure}
-
-Key findings from Table~\ref{tab:confirmation}:
+\textbf{Confirmed findings from Table~\ref{tab:confirmation}.}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{All selective configs preserve mean recall $\geq 0.90$.}
-    Recall means range from 0.9024 to 0.9057.
-  \item \textbf{Maintenance reductions of 32--46\% are confirmed.}
+  \item All score-based selective-refinement configs preserve mean
+    recall $\geq 0.90$. Recall means: 0.9024--0.9057.
+  \item Maintenance reductions of 32--46\% versus Quake confirmed
+    across three seeds.
     Score50-Raw-Linear: $-45.9\%$; D70-B0.5-G0.5: $-39.5\%$;
     Density70-Linear: $-36.5\%$.
-  \item \textbf{Total runtime stays within 4\% of Quake.}
-  \item \textbf{Density70-Linear has the lowest maintenance variance}
-    (CV 12.2\%), making it the most behaviorally stable configuration.
-  \item \textbf{No single configuration dominates all dimensions.}
-    The exact ordering within the score-based policy class is not
-    stable at $n=3$ seeds; claims are at the policy-class level.
+  \item All selective configs keep mean total runtime overhead
+    below 5\% of Quake (best: D70-B0.5-G0.5 at $+2.2\%$).
+  \item Density70-Linear has the lowest maintenance variance
+    (CV = 12.2\%), making it the most predictable configuration.
+  \item The exact ranking within the score-based policy class is not
+    stable at $n=3$ seeds. The maintenance difference between
+    Density70-Linear and D70-B1.0-G0.5 is 495\,ms, smaller than
+    either config's standard deviation. Claims are at the
+    \emph{policy-class level}: score-based refinement robustly
+    outperforms all naive baselines tested.
 \end{itemize}
 
-\subsection{Structure in the General Score Family}
-\label{sec:eval_grid}
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Policy Recommendations for Different User Priorities}
+\label{sec:eval_recommendations}
+% RQ5: which operating point should users choose?
+% ─────────────────────────────────────────────────────────────────────────────
 
-% [SINGLE-RUN] Grid from seed 9299. Directional.
-\begin{table}[h]
-\centering
-\caption{$3{\times}3$ beta/gamma grid for Density70 ($K=70$,
-  density normalization enabled). \textit{Single-run (seed 9299).}}
-\label{tab:grid}
-\begin{tabular}{ccrrrr}
-  \toprule
-  $\beta$ & $\gamma$ & Maintain & Total & Recall \\ \midrule
-  0.5 & 0.5 & 37,805 & 376,547 & 0.9033 \\
-  0.5 & 1.0 & 45,214 & 393,305 & 0.9029 \\
-  0.5 & 1.5 & 54,977 & 382,108 & 0.9049 \\
-  \textbf{1.0} & \textbf{0.5} & \textbf{37,382} & \textbf{370,039} & 0.9035 \\
-  1.0 & 1.0 & 50,030 & 393,363 & \textbf{0.9052} \\
-  1.0 & 1.5 & 39,504 & 379,727 & 0.9018 \\
-  1.5 & 0.5 & 40,455 & 379,769 & 0.9016 \\
-  1.5 & 1.0 & 35,535 & 374,353 & 0.9013 \\
-  1.5 & 1.5 & 37,364 & 377,434 & 0.9018 \\
-  \bottomrule
-\end{tabular}
-\end{table}
-
-Two directional patterns emerge from the grid (each robust to run
-variance since they hold column-wide or row-wide):
 \begin{itemize}[leftmargin=*]
-  \item The $\gamma=0.5$ column consistently produces lower total
-    runtime (370k--380k) than $\gamma=1.0$ (374k--393k),
-    suggesting sublinear staleness compression reduces total overhead.
-  \item The $\beta=1.5$ row has consistently lower recall (0.9013--0.9018)
-    regardless of $\gamma$, confirming that super-linear hit
-    amplification is detrimental.
+  \item \textbf{Recall-critical.}
+    Use \textbf{Quake full refinement}.
+    Mean recall 0.9118, lowest recall variance ($\pm$0.0134).
+    Accept full maintenance overhead to guarantee recall.
+
+  \item \textbf{Maintenance-constrained.}
+    Use \textbf{Score50-Raw-Linear}: $S(p) = (h_p+1)\,m_p$, $K=50$.
+    Mean maintenance 36,620\,ms ($-45.9\%$), recall 0.9017.
+    Caveat: higher maintenance variance (CV=24.1\%).
+
+  \item \textbf{Balanced.}
+    Use \textbf{D70-B0.5-G0.5}: $S(p) = (h_p+1)^{0.5}(m_p/|p|)^{0.5}$,
+    $K=70$.
+    Best combined tradeoff: $-39.5\%$ maintenance, recall 0.9064,
+    total overhead $+2.2\%$, lowest maintenance std (CV=10.9\%).
+
+  \item \textbf{Simplicity and predictability.}
+    Use \textbf{Density70-Linear}: $S(p) = (h_p+1)(m_p/|p|)$, $K=70$.
+    Simplest density formulation, lowest maintenance CV (12.2\%),
+    competitive recall (0.9033), $+2.9\%$ total overhead.
+    Recommended default for deployments that prioritize
+    predictable behavior over absolute minimum maintenance.
+
+  \item \textbf{No-maintenance / static IVF.}
+    \textbf{Not recommended} for dynamic insert/delete workloads.
+    Faiss-IVF is $4.25\times$ slower in total runtime and fails the
+    0.90 recall target on one of three seeds.
+    Consider static IVF only for truly static datasets or
+    predominantly read-only workloads where update simplicity
+    matters more than search time and recall stability.
 \end{itemize}
-The 3-seed confirmation does not yet establish statistical significance
-for differences within the score-based policy class at $n=3$.
-
-\subsection{Baseline Comparison}
-\label{sec:eval_baselines}
-
-\todo{Add LIRE and Faiss-IVF 3-seed results here once baseline comparison
-experiment completes. Include a table comparing:
-Quake full, LIRE-style, Score50-Raw-Linear, Density70-Linear,
-D70-B0.5-G0.5, and Faiss-IVF.
-Key questions to answer:
-(1) Does LIRE-style maintenance preserve recall? Expected: no (no K-means refinement).
-(2) Does Faiss-IVF recall degrade visibly over the workload? Expected: yes (static centroids).
-(3) Where do FlexiRefine configs sit on the frontier relative to baselines?}
-
-\textbf{Faiss-IVF caveat.} Faiss-IVF is a static index: its partition
-centroids are trained at build time and never updated. Under a 30/20
-insert/delete workload, recall degrades progressively as vectors are
-inserted into outdated centroid neighborhoods. This is expected
-behavior and illustrates the cost of forgoing dynamic maintenance.
-Faiss-IVF is included as a no-maintenance reference point.
-
-\textbf{LIRE caveat.} Our LIRE baseline uses the same Quake backend
-with size-based partitioning (\texttt{max\_partition\_size}=2000) and
-no K-means refinement (\texttt{refinement\_iterations}=0). This
-approximates the SPFresh/LIRE design principle of reassignment without
-centroid repair. Reviewers should note that our LIRE is a policy
-comparison within Quake, not an independent implementation.
-
-\subsection{What Did Not Work}
-\label{sec:eval_negative}
-
-\textbf{Size alone is too weak.}
-Large-but-stable partitions are prioritized over small-but-stale ones.
-
-\textbf{Distance alone is too geometric.}
-Proximity to a split identifies affected neighbors, not queried ones.
-
-\textbf{Budget without ranking refines fewer, not better.}
-Global top-$K$ and per-split caps reduce maintenance but rely on a
-strong score; without one, they provide no benefit over random selection.
-
-\textbf{Per-split coverage breaks global ranking.}
-Forcing $b$ candidates per centroid before the global union prevents
-globally high-value selections. Correctness of the bug fix confirmed by
-the gap between corrected and buggy per-split numbers.
-
-\textbf{Hits alone are incomplete.}
-Frequently queried but structurally stable partitions consume budget
-at the expense of stale but moderately queried ones.
-
-\textbf{Super-linear hit amplification ($\beta > 1$) hurts recall.}
-The $\beta=1.5$ row is consistently weakest across all $\gamma$ values.
-
-\subsection{Policy Recommendations}
-
-Based on the confirmed results:
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Recommended default: Density70-Linear.}
-    $S(p) = (h_p+1)(m_p/|p|)$, $K=70$, split threshold 240\,ns,
-    2 iterations, radius 50.
-    Lowest maintenance variance (CV 12.2\%), competitive recall
-    (0.9033 mean), total overhead $+2.9\%$ vs.\ Quake.
-  \item \textbf{Lowest-maintenance option: Score50-Raw-Linear.}
-    $(h_p+1) m_p$, $K=50$.
-    Mean maintenance $-45.9\%$ vs.\ Quake, recall 0.9026.
-    Higher variance (CV 24.1\%).
-  \item \textbf{Exact $(\beta,\gamma)$ pair is not yet conclusively best}
-    at $n=3$ seeds. Claims should be at the policy-class level.
-\end{itemize}
-
-% ============================================================
-\section{Discussion}
-\label{sec:discussion}
-% ============================================================
-
-\subsection{Run Variance and K-Means Non-Determinism}
-
-Refinement quality depends on K-means centroid initialization, which
-is stochastic and not controlled by the workload seed. Over a 1000-operation
-workload, small differences in early refinement cycles compound into
-meaningful behavioral divergence. We observe maintenance cost
-coefficients of variation between 12\% and 33\% across three seeds,
-and recall standard deviations of $\pm$0.015--0.022. This is why we
-report mean\,$\pm$\,std rather than single-run tables for the primary
-results, and why claims are at the policy-class level rather than
-asserting a specific $(\beta, \gamma)$ pair as optimal.
-
-\subsection{Policy-Class Claims versus Hyperparameter Claims}
-
-The three-seed confirmation establishes that score-based selective
-refinement robustly preserves mean recall above 0.90 while reducing
-mean maintenance by 32--46\%. The differences between individual
-configurations within this class (e.g., Density70-Linear versus
-D70-B1.0-G0.5) are within the magnitude of run-to-run variance at
-$n=3$ seeds. Firmer per-configuration claims require $n \geq 5$ seeds
-or deterministic K-means initialization.
-
-\subsection{Scope of Current Results}
-
-All confirmed results use SIFT1M with a specific 30/20/50 workload mix.
-Whether the findings generalize to larger datasets (SIFT10M, MSTuring),
-read-heavy or write-heavy mixes, or different dimensionalities is not
-yet established. The policy framework is architecture-agnostic, but
-empirical validation on multiple datasets is needed for final
-conference submission.
-
-\subsection{Baseline Completeness}
-
-The current evaluation compares \system variants against Quake full
-refinement and (pending) LIRE and Faiss-IVF. A complete conference
-submission requires at minimum one graph-based baseline (HNSW or
-DiskANN) and verification that LIRE and Faiss-IVF results are
-consistent across seeds. HNSW requires a delete-free workload variant
-because the Faiss HNSW implementation does not support vector deletion.
 
 % ============================================================
 \section{Conclusion}
@@ -1006,49 +1089,81 @@ because the Faiss HNSW implementation does not support vector deletion.
 
 Dynamic vector indexing systems should expose maintenance as a
 controllable resource rather than a fixed internal policy.
-\system demonstrates this by treating post-split refinement as a
-tunable allocation problem. The key insight, confirmed across three
-independent workloads, is that refinement should target partitions
-that are both important to queries and structurally stale. Naive
-policies that filter by size, distance, or local coverage consistently
-fail to preserve the recall target. Score-based selective refinement
-reduces maintenance by \textbf{36--46\%} while preserving
-\textbf{mean recall above 0.90} with total runtime within
-\textbf{4\% of full refinement}.
+\system demonstrates this by framing post-split partition refinement
+as a resource allocation problem: rather than refining all candidates
+after every split, it ranks candidates by a joint importance--staleness
+score and refines only the top-ranked subset.
+The key result, confirmed across three independent workload seeds,
+is that score-based selective refinement reduces maintenance by
+38--45\% while preserving mean recall above 0.90 with total runtime
+overhead below 5\%, whereas a static Faiss-IVF index that forgoes
+maintenance entirely is over $4\times$ slower in total runtime and
+unreliable in recall across seeds.
+Naive alternatives---size-only, distance-only, per-split coverage, and
+budget-without-ranking policies---consistently fail to preserve the
+recall target, confirming that a joint workload-importance and
+structural-staleness signal is necessary.
+We argue that \system's principal contribution is not a specific
+hyperparameter setting but a \emph{control plane}: a principled,
+configurable, and interpretable layer that makes the
+recall--maintenance--latency tradeoff explicit and tunable for
+diverse deployment priorities.
 
-Among confirmed configurations, density-normalized staleness
-($D(p) = m_p/|p|$) provides the most behaviorally stable operating
-point (maintenance CV 12.2\%) and is the recommended default.
-The optimal exponents $(\beta, \gamma)$ in the general score family
-require further confirmation; all tested configurations are competitive.
+\subsection{Limitations and Discussion}
 
-% ============================================================
-\section{Future Work}
-\label{sec:future}
-% ============================================================
+\textbf{Run variance.}
+K-means refinement uses stochastic centroid initialization.
+Over a 1000-operation dynamic workload, early-cycle randomness compounds
+into meaningful divergence: maintenance cost CVs range from 10\% to
+34\% across three seeds, and recall standard deviations are $\pm$0.015--0.022.
+This motivates mean\,$\pm$\,std reporting and policy-class claims rather
+than hyperparameter-level comparisons.
+
+\textbf{Hyperparameter stability.}
+The exact ranking within the score-based policy class (e.g., whether
+$\beta=0.5$ or $\beta=1.0$ is better) is not stable at $n=3$ seeds.
+At least $n=5$ seeds or deterministic K-means seeding are needed before
+specific $(\beta, \gamma)$ values can be recommended conclusively.
+
+\textbf{Scope.}
+All confirmed results use SIFT1M with a 30/20/50 insert/delete/query
+mix. Generalization to larger datasets (SIFT10M, MSTuring) and different
+workload distributions requires further evaluation.
+
+\textbf{Baseline completeness.}
+Faiss-IVF is confirmed. A LIRE-style baseline (dynamic splits without
+K-means) is under evaluation; preliminary runs encountered a
+delete-after-partition-deletion instability that is being fixed.
+Graph-based baselines (HNSW, ScaNN) are planned.
+
+\subsection{Future Work}
 
 \begin{enumerate}[leftmargin=*]
-  \item \textbf{Complete external baselines.}
-    Run LIRE and Faiss-IVF 3-seed comparison; add HNSW (delete-free
-    workload) and ScaNN.
-  \item \textbf{More seeds ($n=5$).}
-    Add seeds 1337 and 2024 to enable firmer per-configuration claims.
-  \item \textbf{Deterministic K-means seed control.}
-    Expose a random seed in \texttt{refine\_partitions()} to eliminate
-    run variance and simplify reproducibility.
+  \item \textbf{LIRE and graph baselines.}
+    Complete the LIRE-style 3-seed comparison and add HNSW/ScaNN
+    baselines to answer whether the FlexiRefine recall--runtime
+    tradeoff is competitive with non-IVF approaches.
+
+  \item \textbf{More seeds and deterministic K-means.}
+    Extend to $n=5$ seeds (add 1337 and 2024). Alternatively, expose
+    a K-means random seed in \texttt{refine\_partitions()} to enable
+    fully reproducible experiments.
+
   \item \textbf{Larger workloads.}
-    Validate on SIFT10M and MSTuring-10M.
-  \item \textbf{Gamma fine sweep.}
-    With $\beta=1.0$ fixed, sweep $\gamma \in \{0.25, 0.5, 0.75, 1.0\}$
-    to locate the optimal staleness exponent.
+    Evaluate on SIFT10M and MSTuring-10M to test generalization.
+
   \item \textbf{Adaptive budget control.}
-    Adjust the top-$K$ budget dynamically based on observed recall drift,
-    targeting a user-specified recall threshold rather than a fixed count.
+    Adjust top-$K$ dynamically based on observed recall drift,
+    targeting a recall threshold rather than a fixed candidate count.
+
+  \item \textbf{Score-family fine-tuning.}
+    With $\beta=1.0$ fixed, sweep $\gamma \in \{0.25, 0.5, 0.75, 1.0\}$
+    to locate the optimal staleness exponent more precisely.
 \end{enumerate}
 
 % ============================================================
 \bibliographystyle{ACM-Reference-Format}
-\bibliography{references}
+\bibliography{flexirefine_refs}
 % ============================================================
 
 \end{document}

@@ -864,3 +864,150 @@ continue to work identically (`"Quake" == "Quake"` triggers `do_maintenance=True
   move Related Work, reduce to 4 subsections, result-style headers
 - Files changed: `docs/flexirefine_paper_draft_current.tex`, `docs/flexirefine_research_log.md`
 - Status: **IN PROGRESS**
+
+---
+
+## Update: 2026-05-05 — DZ Comments Pass 2 + Faiss-IVF Confirmed Results
+
+### §15 DZ Advisor Comments (Second Pass, 2026-05-05)
+
+**Branch:** `flexirefine-paper-dz-comments-faiss-results`
+
+#### Comment C1: Reduce contributions to 3–4
+
+Old draft had 6 contributions. New draft has exactly 4:
+- C1. Control-plane problem identification
+- C2. Score-based selective refinement design
+- C3. Full implementation and infrastructure
+- C4. Empirical evaluation with external baselines
+
+#### Comment C2: Paper structure — 7 sections
+
+Implemented section structure:
+```
+§1 Introduction (motivation as prose, 4 contributions)
+§2 Background and Related Work (4 subsections)
+§3 Design of FlexiRefine (renamed from System Design)
+§4 Theoretical Analysis (renamed + expanded)
+§5 System Implementation (added multi-seed infra + evaluator compat)
+§6 Evaluation (RQ preamble + 6 result-style subsections)
+§7 Conclusion (Discussion and Future Work as subsections §7.1, §7.2)
+```
+
+Motivation/use cases: merged as prose paragraphs in §1 Introduction.
+No standalone §2 Motivation section.
+
+#### Comment C3: Background and Related Work — 4 subsections
+
+```
+§2.1 Vector Search Indexes
+§2.2 Dynamic and Streaming Vector Search
+§2.3 Adaptive Query Processing and Index Maintenance
+§2.4 Vector Databases and Data Management Systems
+```
+SISAP 2013 Boytsov reference removed/deprioritized.
+
+#### Comment C4: Design section (§3) — candidate generation through executor
+
+§3 now named "Design of FlexiRefine" with all 5 modules documented:
+candidate generator, metadata tracker, scoring engine, budget allocator, refinement executor.
+
+#### Comment C5: Theoretical Analysis (§4) — stronger formulas
+
+Added physical motivation for each staleness transform:
+- D(p) = m_p (raw: absolute mutations)
+- D(p) = m_p/|p| (density: mutations per resident vector, approximates centroid drift rate)
+- D(p) = sqrt(m_p) (sublinear growth)
+- D(p) = log(1+m_p) (compression of outliers)
+
+Explicitly states: no single (β,γ) is universally optimal; family is a tunable control surface.
+
+#### Comment C6: System Implementation (§5) — new subsections
+
+Added:
+- §5.4 Multi-Seed Evaluation Infrastructure
+- §5.5 Evaluator Compatibility for Non-Quake Baselines
+  (parent_info None-guard, maintenance() null-check, per-index do_maintenance)
+  LIRE caveat: "delete-after-partition-deletion stability issue being resolved"
+
+#### Comment C7: Evaluation restructure
+
+New structure:
+- RQ1–RQ5 listed explicitly at top of §6
+- §6.1 Experimental Setup
+- §6.2 Score-Based Refinement Reduces Maintenance by 38–45%
+- §6.3 Coverage-Only Budgeting Fails to Preserve Recall
+- §6.4 Static IVF Avoids Maintenance but Pays Over 4× Higher Total Runtime
+- §6.5 Multiseed Results Confirm the Policy-Class Claim
+- §6.6 Policy Recommendations for Different User Priorities
+
+---
+
+### §4.6 Faiss-IVF 3-Seed Baseline Comparison Results (CONFIRMED)
+
+**Config:** `sift1m_split240_baseline_comparison_faiss_3seed`
+**Seeds:** {9299, 42, 12345}
+
+| Config | Search | Maintain | Total | Recall |
+|---|---|---|---|---|
+| Quake | 197,731 ± 41,144 | 70,682 ± 15,431 | 309,741 ± 66,555 | 0.9118 ± 0.0134 |
+| Score50-Raw-Linear | 248,131 ± 57,834 | 38,579 ± 7,528 | 321,162 ± 64,340 | 0.9017 ± 0.0192 |
+| Density70-Linear | 245,172 ± 45,798 | 43,735 ± 11,913 | 323,591 ± 54,505 | 0.9039 ± 0.0165 |
+| D70-B0.5-G0.5 | 239,872 ± 46,409 | 42,224 ± 4,609 | 316,609 ± 54,402 | 0.9064 ± 0.0184 |
+| Faiss-IVF (nprobe=20) | 1,305,884 ± 780,820 | 0 ± 0 | 1,315,646 ± 782,124 | 0.9269 ± 0.0668 |
+
+**Key confirmed findings:**
+- D70-B0.5-G0.5: −40.3% maintenance vs Quake, recall 0.9064, +2.2% total. Best balanced config.
+- Score50-Raw-Linear: −45.4% maintenance, highest variance (CV 19.5%).
+- Density70-Linear: −38.1% maintenance, lowest CV among density configs.
+- Faiss-IVF: 4.25× slower total than Quake; 4.16× slower than D70-B0.5-G0.5.
+  Recall fell to 0.8553 at seed_12345 (below 0.90 target). High variance (±0.0668).
+  Frame as degradation baseline: not competitive for dynamic workloads.
+
+**Paper-safe primary claim [CONFIRMED]:**
+Score-based selective refinement reduces Quake's maintenance cost by 38–45% while preserving mean recall above 0.90 across three dynamic workload seeds, with total runtime overhead below 5%.
+
+**Paper-safe Faiss claim [CONFIRMED]:**
+Static Faiss-IVF avoids maintenance but pays more than 4× higher total runtime and exhibits high recall variance under dynamic insert/delete workloads.
+
+**Paper status:** CONFIRMED — use in §6.4 main results table.
+
+---
+
+### LIRE Status (2026-05-05)
+
+- Initial LIRE 3-seed baseline crashed during mixed insert/delete workloads.
+- Fix 1: stale-partition guard added in `refine_partitions()` (commit `6c15652`).
+- Fix 2: `min_partition_size: 0` added to YAML to prevent delete-after-partition-deletion instability (commit `93f696c`).
+- Fix 3: full-shape smoke config created (commit `026417c`).
+- Smoke passed for LIRE-NoRefinement. LIRE-CrashRepro smoke still in progress.
+- Full 3-seed LIRE baseline run pending.
+- **Do not include LIRE quantitative results in main claims until stable.**
+- Expected result: LIRE fails recall 0.90, confirming K-means refinement is necessary.
+
+---
+
+### §5 Updated Current Best Claims (2026-05-05)
+
+**[CONFIRMED — 3 seeds]:**
+1. Score-based selective refinement (any policy with joint importance×staleness) reduces maintenance 32–46% while preserving mean recall ≥ 0.90. Total overhead < 5%.
+2. Static Faiss-IVF (no maintenance) is 4.25× slower in total runtime and fails 0.90 recall on one of three seeds. Dynamic maintenance is necessary.
+3. All tested naive policies (size, distance, budget-without-ranking, per-split coverage) fail to preserve recall while reducing maintenance.
+4. Density70-Linear is the most stable recommended default (maintenance CV = 12.2%).
+5. The exact best (β,γ) is not stable at n=3 seeds — claims must be at policy-class level.
+
+**[PENDING]:**
+- LIRE 3-seed comparison
+- HNSW/ScaNN comparison
+- n=5 seed confirmation
+
+---
+
+### §9 Updated Next Experiments (2026-05-05)
+
+1. **[IN PROGRESS]** LIRE-style baseline smoke test — fix delete-after-partition-deletion instability
+2. **[NEXT AFTER LIRE]** LIRE 3-seed baseline comparison
+3. **[PLANNED]** HNSW on insert-only workload variant (no delete workaround needed)
+4. **[PLANNED]** ScaNN (pip install scann on CloudLab)
+5. **[PLANNED]** n=5 seeds (add 1337, 2024)
+6. **[PLANNED]** SIFT10M/MSTuring workload scaling
