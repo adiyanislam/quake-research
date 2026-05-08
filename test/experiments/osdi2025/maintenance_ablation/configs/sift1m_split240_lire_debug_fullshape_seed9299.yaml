@@ -45,6 +45,7 @@ indexes:
     search_params: {k: 10, recall_target: 0.9}
     maintenance_params:
       refinement_iterations: 0
+      min_partition_size: 0  # prevent partition deletions that orphan vectors
       max_partition_size: 2000
 
   - name: LIRE-NoRefinement
@@ -54,6 +55,7 @@ indexes:
     maintenance_params:
       refinement_iterations: 0
       refinement_radius: 0
+      min_partition_size: 0  # prevent partition deletions that orphan vectors
       max_partition_size: 2000
 
 plot:

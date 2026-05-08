@@ -1,0 +1,55 @@
+# LIRE-NoRefinement Standalone Smoke
+# ────────────────────────────────────────────────────────────────────────────────
+# Runs LIRE-NoRefinement (radius=0, iter=0, min_partition_size=0) independently
+# so it is not blocked by LIRE-CrashRepro crashes in the combined smoke config.
+#
+# min_partition_size: 0 prevents maintenance from deleting small partitions
+# and orphaning their vectors from the workload's resident_set. This is the
+# stability fix for the LIRE partition-deletion / resident-set divergence issue.
+#
+# If this runs cleanly with good recall (~0.88-0.92), LIRE-style maintenance
+# (size-based splits, no K-means refinement) is viable as a baseline.
+#
+# Same workload shape as sift1m_split240_baseline_comparison_faiss_3seed.
+# Single seed 9299.
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  - name: LIRE-NoRefinement
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_iterations: 0
+      refinement_radius: 0
+      min_partition_size: 0
+      max_partition_size: 2000
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    LIRE-NoRefinement: {color: "#2ca02c", linestyle: "-", marker: "o"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true
