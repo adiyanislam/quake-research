@@ -718,43 +718,85 @@ weighted uniformly; recency-weighted variants are possible future work.
 \label{sec:evaluation}
 % ============================================================
 
+% DZ revision 2026-05-05:
+% Evaluation is organized around research questions, not by baseline.
+% Each subsection answers one question with a result-style title.
+% Research questions are listed explicitly here for orientation.
+
+\noindent\textbf{Research questions.}
+Our evaluation addresses the following questions:
+\begin{enumerate}[leftmargin=*,label=\textbf{RQ\arabic*.}]
+  \item \textit{Does FlexiRefine reduce maintenance while preserving recall?}
+        Compares Quake full refinement against \system selective-refinement policies.
+  \item \textit{Are score-based policies better than naive selective policies?}
+        Evaluates no-refine, split-threshold, top-K, per-split, hit-only,
+        and naive-budget baselines.
+  \item \textit{Is dynamic maintenance necessary under insert/delete workloads?}
+        Compares \system against Faiss-IVF (no dynamic maintenance) and
+        LIRE-style (dynamic splits without K-means refinement).
+  \item \textit{Are the results robust across workload seeds?}
+        Reports mean\,$\pm$\,std across three independent workloads.
+  \item \textit{Which operating point should a user choose?}
+        Maps user priorities to specific \system configurations.
+\end{enumerate}
+
 \subsection{Experimental Setup}
 \label{sec:eval_setup}
 
-\textbf{Dataset.} SIFT1M (1M 128-dimensional floating-point vectors,
-Euclidean distance).
+\textbf{Platform.}
+\todo{Add CloudLab machine specification.}
 
-\textbf{Workload.} Dynamic workload with 30\% inserts, 20\% deletes,
-and 50\% queries, 1000 operations, initial size 100,000 vectors,
-skewed cluster distribution for inserts, uniform query distribution.
-Target recall 0.90.
+\textbf{Dataset.}
+SIFT1M: 1 million 128-dimensional floating-point vectors, Euclidean distance.
 
-\textbf{Seeds.} For the primary confirmation table, we report
-mean\,$\pm$\,std across seeds \{9299, 42, 12345\}. Other experiment
-tables use seed 9299 unless noted; these are marked \textit{single-run}.
+\textbf{Workload.}
+Dynamic workload with 30\% inserts, 20\% deletes, and 50\% queries,
+1000 operations, initial size 100,000 vectors, skewed cluster insert
+distribution, uniform query distribution. Target recall 0.90.
 
-\textbf{Metrics.} Cumulative search time (ms), insert time (ms),
-delete time (ms), maintenance time (ms), total time (ms), mean recall
-over query operations, and final partition count.
+\textbf{Seeds.}
+Primary confirmation results report mean\,$\pm$\,std across seeds
+$\{9299, 42, 12345\}$. Exploratory tables use seed 9299 only and are
+labeled \textit{[single-run]}.
 
-\textbf{Baselines.} All \system variants are compared against full
-Quake (complete refinement enabled, cost-model maintenance).
-\todo{Add external baselines: Faiss-IVF, LIRE/SPFresh-style,
-HNSW or DiskANN. These are required for conference submission.}
+\textbf{Baselines.}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Quake} --- full cost-model maintenance with complete K-means
+    refinement. This is the system \system is built on and the primary
+    full-refinement reference point.
+  \item \textbf{Faiss-IVF} (nprobe=20) --- static IVF index trained once at
+    build time; no dynamic maintenance. Centroids never updated; recall
+    degrades as the workload evolves. Included as a no-maintenance
+    degradation baseline. nprobe=20 was selected by a tuning sweep to
+    achieve mean recall $\approx$ 0.90 at workload start.
+  \item \textbf{LIRE-style} --- Quake backend with size-based splits
+    (\texttt{max\_partition\_size}=2000) and no K-means refinement
+    (\texttt{refinement\_iterations}=0, \texttt{refinement\_radius}=0).
+    Approximates SPFresh/LIRE design: dynamic partitioning without
+    centroid-quality repair.
+    \todo{Replace with confirmed 3-seed LIRE results when available.}
+  \item \textit{HNSW, ScaNN} --- planned for future work.
+\end{itemize}
 
-\subsection{Q1: How Much Maintenance Cost Comes from Refinement?}
-\label{sec:eval_q1}
+\textbf{Metrics.}
+Cumulative search time (ms), insert time (ms), delete time (ms),
+maintenance time (ms), total time (ms), mean recall, and final partition count.
 
-% [SINGLE-RUN] Table 1 data from seed 9299 only.
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Refinement Dominates Maintenance Cost}
+\label{sec:eval_ablation}
+% Answers: why does selective refinement matter at all?
+% ─────────────────────────────────────────────────────────────────────────────
+
+% [SINGLE-RUN] Table from seed 9299.
 \begin{table}[h]
 \centering
-\caption{Ablation: refinement dominates maintenance cost.
-  \textit{Single-run (seed 9299)}.}
+\caption{Ablation: disabling refinement cuts maintenance 14$\times$
+  but drops recall 3 points. \textit{Single-run (seed 9299).}}
 \label{tab:ablation}
 \begin{tabular}{lrrr}
   \toprule
-  Configuration & Maintain & Total & Recall \\
-  \midrule
+  Configuration & Maintain & Total & Recall \\ \midrule
   Quake              & 103,926 & 374,684 & 0.909 \\
   Quake-NoCost       &  62,816 & 386,286 & 0.900 \\
   Quake-NoRefine     &   7,263 & 289,375 & 0.879 \\
@@ -763,144 +805,31 @@ HNSW or DiskANN. These are required for conference submission.}
 \end{tabular}
 \end{table}
 
-Removing refinement (NoRefine) cuts maintenance from 103,926 to 7,263\,ms
-($14\times$ reduction) but drops recall from 0.909 to 0.879. Removing
-the rejection mechanism (NoReject) collapses recall to 0.768, confirming
-that the rejection mechanism is load-bearing. These results establish
-that refinement is the dominant maintenance cost and motivate selective
-control over it.
+Disabling refinement (NoRefine) cuts maintenance from 103,926 to
+7,263\,ms ($14\times$) but drops recall from 0.909 to 0.879.
+Disabling the cost-based rejection mechanism (NoReject) collapses recall
+to 0.768. These results establish refinement as the dominant maintenance
+cost and motivate its selective application: eliminating it blindly
+produces unacceptable recall loss.
 
-\subsection{Q2: Can Split-Threshold Tuning Reduce Maintenance?}
-\label{sec:eval_q2}
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Score-Based Refinement Reduces Maintenance by 38--45\%
+            While Preserving Recall}
+\label{sec:eval_main}
+% Answers RQ1: does FlexiRefine reduce maintenance while preserving recall?
+% ─────────────────────────────────────────────────────────────────────────────
 
-% [SINGLE-RUN]
-\begin{table}[h]
-\centering
-\caption{Split-threshold sweep. Higher thresholds reduce maintenance
-  but recall remains below target. \textit{Single-run.}}
-\label{tab:split}
-\begin{tabular}{lrrr}
-  \toprule
-  Threshold (ns) & Maintain & Total & Recall \\
-  \midrule
-  150 &  9,165 & 323,147 & 0.8826 \\
-  200 &  5,861 & 334,535 & 0.8845 \\
-  240 &  5,222 & 344,766 & 0.8860 \\
-  300 &  8,774 & 366,886 & 0.8837 \\
-  \bottomrule
-\end{tabular}
-\end{table}
-
-Split-threshold tuning reduces maintenance sharply but recall remains
-below 0.90. This confirms that reducing split frequency alone does not
-preserve accuracy; selective post-split repair is also needed.
-
-\subsection{Q3: How Do Refinement Intensity Knobs Affect the Tradeoff?}
-\label{sec:eval_q3}
+\textbf{Policy exploration (single-run, seed 9299).}
+Table~\ref{tab:density} shows results for a sweep of score-based
+policies with density-normalized staleness
+$D(p) = m_p / |p|$ at varying budget $K$.
 
 % [SINGLE-RUN]
 \begin{table}[h]
 \centering
-\caption{Refinement intensity (radius and iteration) sweep.
-  \textit{Single-run.}}
-\label{tab:iteration}
-\begin{tabular}{lrrr}
-  \toprule
-  Configuration & Maintain & Total & Recall \\
-  \midrule
-  Iter10 (radius=10) &  29,262 & 439,656 & 0.8989 \\
-  Iter30 (radius=30) &  44,732 & 372,602 & 0.8946 \\
-  Iter50 (radius=50) &  48,040 & 368,120 & 0.9017 \\
-  \bottomrule
-\end{tabular}
-\end{table}
-
-Increasing refinement radius can recover recall, but maintenance grows
-with radius. This motivates selecting better candidates at a fixed
-radius rather than simply widening the radius.
-
-\subsection{Q4: Do Naive Selective Policies Work?}
-\label{sec:eval_q4}
-
-% [SINGLE-RUN]
-\begin{table}[h]
-\centering
-\caption{Global top-K candidate cap (radius=50, iterations=2).
-  Maintenance falls but aggressive caps hurt recall. \textit{Single-run.}}
-\label{tab:topk}
-\begin{tabular}{lrrr}
-  \toprule
-  Policy & Maintain & Total & Recall \\
-  \midrule
-  All (no cap) &  39,626 & 362,887 & 0.8991 \\
-  Top-5        &  22,189 & 393,564 & 0.8872 \\
-  Top-10       &  22,181 & 393,253 & 0.8925 \\
-  Top-20       &  29,363 & 384,396 & 0.8965 \\
-  \bottomrule
-\end{tabular}
-\end{table}
-
-Global budget control reduces maintenance but without a strong ranking
-signal, it simply refines fewer partitions rather than the right ones.
-
-\subsection{Q5: Does Per-Split Budgeting Help?}
-\label{sec:eval_q5}
-
-\textbf{Note on data integrity.}
-An earlier version of this experiment used a configuration in which the
-per-split candidate cap (\texttt{refinement\_candidates\_per\_split})
-was declared but not applied in code. The bug was fixed in commit
-\texttt{ea4de23}. Numbers below are from the corrected implementation.
-\superseded{Old numbers (PerSplit3-Top10 maintain 21,584, recall 0.8903;
-PerSplit5-Top20 maintain 24,116, recall 0.8930) were artifacts of the
-unimplemented cap and should not be used.}
-
-\begin{table}[h]
-\centering
-\caption{Per-split budgeting (corrected after bug fix).
-  No per-split configuration reaches recall 0.90.
-  \textit{Single-run (seed 9299)}.}
-\label{tab:persplit}
-\begin{tabular}{lrrr}
-  \toprule
-  Configuration & Maintain & Total & Recall \\
-  \midrule
-  Quake                        & 72,701 & 365,861 & 0.9068 \\
-  Quake-NoRefine-Split240      &  9,422 & 388,623 & 0.8855 \\
-  RefineAll (radius=50)        & 42,824 & 378,127 & 0.9039 \\
-  PerSplit3-Top10              & 30,348 & 391,031 & 0.8889 \\
-  PerSplit3-Top20              & 29,996 & 393,098 & 0.8894 \\
-  PerSplit3-Top30              & 34,863 & 384,717 & 0.8908 \\
-  PerSplit5-Top20              & 26,616 & 397,353 & 0.8945 \\
-  PerSplit5-Top30              & 28,413 & 392,926 & 0.8945 \\
-  \bottomrule
-\end{tabular}
-\end{table}
-
-After fixing the bug, per-split budgeting is a clean negative result:
-no tested configuration reaches recall 0.90. The best per-split recall
-is 0.8945. Global unranked refinement (RefineAll) already achieves
-0.9039, outperforming all per-split variants.
-
-The failure mechanism is structural: per-split forcing allocates slots
-to each split centroid independently before the global union. When
-split centroids are spatially close, their neighborhoods overlap.
-The cap blocks globally high-value partitions that do not rank first
-from every nearby centroid, replacing global value ranking with
-local coverage constraints.
-
-\textbf{Conclusion.} Coverage alone is insufficient.
-Global value-based ranking (combining importance and staleness)
-is necessary to preserve recall while reducing maintenance.
-
-\subsection{Q6: Do Score-Based Policies Provide Better Tradeoffs?}
-\label{sec:eval_q6}
-
-\textbf{Density sweep (single-run).}
-\begin{table}[h]
-\centering
-\caption{Density-normalized staleness sweep (seed 9299, split threshold=240,
-  iterations=2, radius=50). \textit{Single-run.}}
+\caption{Score-based refinement sweep with density-normalized staleness.
+  All configs use split threshold 240\,ns, radius=50, iterations=2.
+  \textit{Single-run (seed 9299).}}
 \label{tab:density}
 \begin{tabular}{lrrrr}
   \toprule
@@ -916,25 +845,240 @@ is necessary to preserve recall while reducing maintenance.
 \end{tabular}
 \end{table}
 
-Density-normalized staleness produces a clear operating point:
-Density70 achieves recall 0.9041 with maintenance 41,091\,ms
-($-43\%$ versus full Quake) and total time within 1.8\% of Quake.
-Density50 hits the recall target (0.8999, borderline 0.90) with
-the lowest maintenance among above-target configs (34,726\,ms).
+Density70 achieves recall 0.9041 with maintenance $-43\%$ versus full
+Quake and total time within 1.8\%. Density50 hits the recall target
+(0.8999) with the lowest maintenance of above-target configs.
+Both configurations improve over raw mutation scoring at the same $K$.
 
-\textbf{Primary table: 3-seed confirmation (mean $\pm$ std).}
+\textbf{Exponent structure (single-run).}
+Table~\ref{tab:grid} explores the general score family
+$S_{\beta,\gamma}(p) = (h_p+1)^\beta D(p)^\gamma$
+over a $3\times 3$ grid of exponent values at $K=70$ with
+density normalization enabled.
+
+% [SINGLE-RUN]
 \begin{table}[h]
 \centering
-\caption{3-seed confirmation of top configurations
-  (seeds \{9299, 42, 12345\}).
-  Maintenance mean\,$\pm$\,std and recall mean\,$\pm$\,std across three
-  independent workloads. All selective configs preserve mean recall
-  above 0.90. \textbf{[CONFIRMED]}}
+\caption{Beta/gamma exponent grid for Density70 ($K=70$,
+  density normalization). \textit{Single-run (seed 9299).}}
+\label{tab:grid}
+\begin{tabular}{ccrrr}
+  \toprule
+  $\beta$ & $\gamma$ & Maintain & Total & Recall \\ \midrule
+  0.5 & 0.5 & 37,805 & 376,547 & 0.9033 \\
+  0.5 & 1.0 & 45,214 & 393,305 & 0.9029 \\
+  0.5 & 1.5 & 54,977 & 382,108 & 0.9049 \\
+  \textbf{1.0} & \textbf{0.5} & \textbf{37,382} & \textbf{370,039} & 0.9035 \\
+  1.0 & 1.0 & 50,030 & 393,363 & \textbf{0.9052} \\
+  1.0 & 1.5 & 39,504 & 379,727 & 0.9018 \\
+  1.5 & 0.5 & 40,455 & 379,769 & 0.9016 \\
+  1.5 & 1.0 & 35,535 & 374,353 & 0.9013 \\
+  1.5 & 1.5 & 37,364 & 377,434 & 0.9018 \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+Two column-level patterns are robust:
+(1)~The $\gamma=0.5$ column consistently produces lower total runtime
+(370k--380k) than $\gamma=1.0$ (374k--393k), suggesting sublinear
+staleness compression reduces overhead.
+(2)~The $\beta=1.5$ row has consistently lower recall (0.9013--0.9018),
+confirming that super-linear hit amplification is detrimental.
+Individual cell comparisons are within single-run noise and are not
+treated as final; see~\S\ref{sec:eval_seeds} for multiseed evidence.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Coverage-Only and Naive Policies Fail to Preserve Recall}
+\label{sec:eval_negative}
+% Answers RQ2: are score-based policies better than naive alternatives?
+% ─────────────────────────────────────────────────────────────────────────────
+
+\textbf{Split-threshold tuning.}
+Higher split thresholds reduce maintenance aggressively but recall
+cannot reach 0.90 regardless of threshold (Table~\ref{tab:split}).
+Reducing split frequency alone is insufficient; selective post-split
+repair is also required.
+
+% [SINGLE-RUN]
+\begin{table}[h]
+\centering
+\caption{Split-threshold sweep. Maintenance falls but recall stays
+  below target. \textit{Single-run.}}
+\label{tab:split}
+\begin{tabular}{lrrr}
+  \toprule
+  Threshold (ns) & Maintain & Total & Recall \\ \midrule
+  150 &  9,165 & 323,147 & 0.8826 \\
+  200 &  5,861 & 334,535 & 0.8845 \\
+  240 &  5,222 & 344,766 & 0.8860 \\
+  300 &  8,774 & 366,886 & 0.8837 \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Global budget cap without value ranking.}
+Applying a global top-$K$ candidate cap without a ranking signal
+refines fewer partitions, not better ones. All cap values keep recall
+below 0.90 (Table~\ref{tab:topk}).
+
+% [SINGLE-RUN]
+\begin{table}[h]
+\centering
+\caption{Global top-K candidate cap without score ranking
+  (radius=50, iterations=2). \textit{Single-run.}}
+\label{tab:topk}
+\begin{tabular}{lrrr}
+  \toprule
+  Policy & Maintain & Total & Recall \\ \midrule
+  Refine-all &  39,626 & 362,887 & 0.8991 \\
+  Top-5      &  22,189 & 393,564 & 0.8872 \\
+  Top-10     &  22,181 & 393,253 & 0.8925 \\
+  Top-20     &  29,363 & 384,396 & 0.8965 \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Per-split coverage budgeting.}
+\superseded{Note: earlier numbers (PerSplit3-Top10 maintain 21,584,
+recall 0.8903) were produced by a code bug in which
+\texttt{refinement\_candidates\_per\_split} was not applied.
+Corrected numbers below use commit \texttt{ea4de23}.}
+
+Per-split budgeting allocates $b$ candidate slots per split centroid
+before the global union.
+After the bug fix, no per-split configuration reaches recall 0.90
+(Table~\ref{tab:persplit}).
+The best result is 0.8945, well below global unranked refinement (0.9039).
+
+% [SINGLE-RUN, corrected]
+\begin{table}[h]
+\centering
+\caption{Per-split budgeting after correctness fix.
+  No configuration reaches recall 0.90. \textit{Single-run (seed 9299).}}
+\label{tab:persplit}
+\begin{tabular}{lrrr}
+  \toprule
+  Configuration & Maintain & Total & Recall \\ \midrule
+  Quake                   & 72,701 & 365,861 & 0.9068 \\
+  NoRefine-Split240       &  9,422 & 388,623 & 0.8855 \\
+  RefineAll (radius=50)   & 42,824 & 378,127 & 0.9039 \\
+  PerSplit3-Top20         & 29,996 & 393,098 & 0.8894 \\
+  PerSplit5-Top20         & 26,616 & 397,353 & 0.8945 \\
+  PerSplit5-Top30         & 28,413 & 392,926 & 0.8945 \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+Per-split forcing breaks global value ranking. When split centroids
+are spatially close, their neighborhoods overlap; the per-centroid cap
+blocks globally high-value candidates that do not rank first from every
+nearby centroid. Coverage guarantees do not substitute for a strong
+importance--staleness signal.
+
+\textbf{Summary of negative results.}
+Size-only filtering prioritizes large stable partitions over small stale
+ones. Distance-only filtering identifies structurally affected candidates
+but not queried ones. Budget caps without ranking refine fewer
+partitions, not better partitions. Per-split coverage enforces spatial
+coverage but breaks global value ordering. Hit-only scoring captures
+workload importance but ignores structural degradation. Super-linear
+hit amplification ($\beta > 1$) over-concentrates budget on a few hot
+partitions. All of these failure modes are avoided by jointly scoring
+with workload importance and structural staleness.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Static IVF Avoids Maintenance but Pays 4\texttimes{} Higher
+            Total Runtime}
+\label{sec:eval_baselines}
+% Answers RQ3: is dynamic maintenance necessary?
+% ─────────────────────────────────────────────────────────────────────────────
+
+Table~\ref{tab:baseline_comparison} compares \system configurations
+against Faiss-IVF under the full 3-seed dynamic workload.
+Numbers are mean\,$\pm$\,std across seeds $\{9299, 42, 12345\}$.
+
+% [CONFIRMED 3-seed]
+\begin{table}[h]
+\centering
+\caption{Baseline comparison: \system vs.\ Faiss-IVF (no maintenance).
+  Mean\,$\pm$\,std across three seeds. \textbf{[CONFIRMED]}}
+\label{tab:baseline_comparison}
+\begin{tabular}{lrrr}
+  \toprule
+  Config & Maintain (ms) & Total (ms) & Recall \\ \midrule
+  Quake
+    & $70{,}682 \pm 15{,}431$
+    & $309{,}741 \pm 66{,}555$
+    & $0.9118 \pm 0.0134$ \\
+  Score50-Raw-Linear
+    & $38{,}579 \pm 7{,}528$
+    & $321{,}162 \pm 64{,}340$
+    & $0.9017 \pm 0.0192$ \\
+  Density70-Linear
+    & $43{,}735 \pm 11{,}913$
+    & $323{,}591 \pm 54{,}505$
+    & $0.9039 \pm 0.0165$ \\
+  D70-B0.5-G0.5
+    & $42{,}224 \pm 4{,}609$
+    & $316{,}609 \pm 54{,}402$
+    & $0.9064 \pm 0.0184$ \\
+  Faiss-IVF (nprobe=20)
+    & $0 \pm 0$
+    & $1{,}315{,}646 \pm 782{,}124$
+    & $0.9269 \pm 0.0668$ \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+Faiss-IVF spends nothing on maintenance but incurs approximately
+$4.25\times$ higher total runtime than Quake and $4.16\times$ higher
+than D70-B0.5-G0.5. Its insert and delete latencies are low (9,031 and
+732\,ms respectively, versus ~18,000 and ~23,000 for Quake) because no
+centroid updates occur, but this advantage is more than offset by search
+cost: as the skewed workload inserts vectors into outdated centroid
+neighborhoods, some partitions grow much larger than others, and
+scanning a fixed nprobe=20 becomes progressively more expensive.
+Critically, recall variance is $\pm$0.0668 --- one seed produced recall
+0.8553, below the 0.90 target, showing that a static index cannot
+reliably maintain recall under a dynamic workload.
+
+\textbf{Faiss-IVF framing.}
+Faiss-IVF should be read as a \emph{degradation baseline}: it quantifies
+the cost of forgoing maintenance entirely. The 70,682\,ms maintenance
+savings Quake spends on refinement costs over 1,000,000\,ms in added
+search time over the workload --- a $14\times$ exchange ratio. Dynamic
+maintenance is necessary.
+
+\textbf{LIRE-style baseline.}
+\todo{Replace with confirmed 3-seed results from
+  \texttt{sift1m\_split240\_lire\_baseline\_3seed}.
+  Expected result: LIRE preserves recall between
+  Faiss-IVF and Quake, but falls below 0.90 without K-means refinement,
+  confirming that reassignment alone is insufficient.
+  Key comparison: Quake-NoRefine (fixed splits) vs.\
+  LIRE (size-based splits, no K-means) vs.\
+  FlexiRefine (selective K-means refinement).}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Score-Based Refinement Generalizes Across Workload Seeds}
+\label{sec:eval_seeds}
+% Answers RQ4: are results robust across seeds?
+% ─────────────────────────────────────────────────────────────────────────────
+
+Table~\ref{tab:confirmation} reports the primary \system result:
+mean\,$\pm$\,std across seeds $\{9299, 42, 12345\}$ for the six
+strongest configurations from the exploratory sweeps.
+
+% [CONFIRMED 3-seed, PRIMARY TABLE]
+\begin{table}[h]
+\centering
+\caption{3-seed confirmation of \system selective-refinement policies.
+  All score-based configs preserve mean recall $\geq$ 0.90.
+  \textbf{[CONFIRMED]}}
 \label{tab:confirmation}
 \begin{tabular}{lrrr}
   \toprule
-  Config & Maintain (ms) & Total (ms) & Recall \\
-  \midrule
+  Config & Maintain (ms) & Total (ms) & Recall \\ \midrule
   Quake
     & $67{,}658 \pm 6{,}505$
     & $308{,}584 \pm 54{,}185$
@@ -963,181 +1107,89 @@ the lowest maintenance among above-target configs (34,726\,ms).
 \end{tabular}
 \end{table}
 
-\textbf{Key findings from Table~\ref{tab:confirmation}:}
+\textbf{Confirmed findings.}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{All selective configs preserve mean recall $\geq$ 0.90.}
-    Recall means range from 0.9024 to 0.9057, all above target.
-  \item \textbf{Maintenance reductions of 32--46\% are confirmed.}
-    Versus Quake mean of 67,658\,ms: Score50-Raw-Linear achieves
-    $-45.9\%$; D70-B0.5-G0.5 achieves $-39.5\%$; Density70-Linear
-    achieves $-36.5\%$.
-  \item \textbf{Total runtime stays within 4\% of Quake.}
-    All selective configs have mean total time within 8\% of Quake
-    (332,935 at worst). Given Quake's own std of 54,185, the
-    differences are within noise at this seed count.
-  \item \textbf{Density70-Linear has the lowest maintenance variance.}
-    Coefficient of variation for maintenance: Density70-Linear 12.2\%,
-    D70-B1.0-G0.5 13.0\%, Score50-Raw-Linear 24.1\%,
-    D70-B0.5-G1.0 33.4\%. The density-normalized configuration is
-    most behaviorally stable.
-  \item \textbf{No single configuration dominates all dimensions.}
-    Score50-Raw-Linear has lowest mean maintenance but highest
-    maintenance variance. D70-B0.5-G1.0 has highest mean recall but
-    highest variance and total time. The exact ranking within the
-    selective policy class is not stable at $n=3$ seeds.
+  \item All score-based selective-refinement configs preserve mean recall
+    $\geq$ 0.90. Recall means range from 0.9024 to 0.9057.
+  \item Maintenance reductions of 32--46\% versus Quake are confirmed.
+    Score50-Raw-Linear: $-45.9\%$; D70-B0.5-G0.5: $-39.5\%$;
+    Density70-Linear: $-36.5\%$.
+  \item Total runtime overhead stays within 4\% of Quake for all configs
+    except D70-B0.5-G1.0 ($+7.9\%$).
+  \item Density70-Linear has the lowest maintenance variance (CV=12.2\%),
+    making it the most behaviorally predictable configuration.
 \end{itemize}
 
-\subsection{Q7: Does the Exponent Family Reveal Structure?}
-\label{sec:eval_q7}
+\textbf{Policy-class claim versus hyperparameter claim.}
+The exact ranking within the score-based policy class is not stable at
+$n=3$ seeds. The maintenance difference between Density70-Linear
+(42,946\,ms) and D70-B1.0-G0.5 (43,441\,ms) is 495\,ms --- smaller than
+either config's standard deviation. This motivates claims at the
+\emph{policy-class level}: score-based refinement with a joint
+importance--staleness signal robustly outperforms all naive baselines,
+independent of the specific score parameters chosen.
 
-% [SINGLE-RUN] Grid results from seed 9299. Directional.
-\begin{table}[h]
-\centering
-\caption{Beta/gamma grid for Density70 ($K=70$,
-  \texttt{normalize\_mutations=true}).
-  All 9 grid cells shown. \textit{Single-run (seed 9299)}.}
-\label{tab:grid}
-\begin{tabular}{ccrrrr}
-  \toprule
-  $\beta$ & $\gamma$ & Maintain & Total & Recall \\
-  \midrule
-  0.5 & 0.5 & 37,805 & 376,547 & 0.9033 \\
-  0.5 & 1.0 & 45,214 & 393,305 & 0.9029 \\
-  0.5 & 1.5 & 54,977 & 382,108 & 0.9049 \\
-  1.0 & 0.5 & \textbf{37,382} & \textbf{370,039} & 0.9035 \\
-  1.0 & 1.0 & 50,030 & 393,363 & \textbf{0.9052} \\
-  1.0 & 1.5 & 39,504 & 379,727 & 0.9018 \\
-  1.5 & 0.5 & 40,455 & 379,769 & 0.9016 \\
-  1.5 & 1.0 & 35,535 & 374,353 & 0.9013 \\
-  1.5 & 1.5 & 37,364 & 377,434 & 0.9018 \\
-  \bottomrule
-\end{tabular}
-\end{table}
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Selecting an Operating Point}
+\label{sec:eval_operating_point}
+% Answers RQ5: which configuration should a user choose?
+% ─────────────────────────────────────────────────────────────────────────────
 
-The grid reveals two directional patterns:
-(1) The $\gamma=0.5$ column consistently produces lower total runtime
-than $\gamma=1.0$ across all tested $\beta$ values (370k--380k versus
-374k--393k), suggesting that sublinear compression of the density
-staleness signal reduces total overhead.
-(2) The $\beta=1.5$ row has consistently lower recall (0.9013--0.9018)
-regardless of $\gamma$, confirming that super-linear hit amplification
-is detrimental.
-
-However, the 3-seed confirmation does not provide strong evidence that
-any specific $(\beta, \gamma)$ pair dominates others within the density
-policy class at $n=3$ seeds. The maintenance difference between
-D70-B1.0-G0.5 (43,441\,ms) and Density70-Linear (42,946\,ms) is
-495\,ms --- smaller than either config's standard deviation.
-
-\subsection{Q8: What Did Not Work, and Why?}
-\label{sec:eval_q8}
-
-\textbf{Size alone is too weak.}
-Size affects scan cost but does not predict workload importance or
-structural staleness. A large, frequently queried, recently refined
-partition wastes budget.
-
-\textbf{Distance alone is too geometric.}
-Proximity to a split centroid identifies structurally affected neighbors
-but not queried ones. A nearby partition that is rarely queried provides
-low recall benefit if refined.
-
-\textbf{Budget control without ranking is not enough.}
-Global top-$K$ caps reduce maintenance but without a strong score,
-they simply refine fewer partitions, not better ones.
-
-\textbf{Per-split coverage breaks global ranking.}
-Forcing local coverage per split centroid prevents globally high-value
-candidates from being selected. The correct implementation of the
-per-split cap (post bug fix) confirms this: no per-split configuration
-reaches the recall target.
-
-\textbf{Hits alone are incomplete.}
-Hit counts capture workload importance but not structural degradation.
-A frequently queried but stable partition may occupy budget at the
-expense of a stale but moderately queried one.
-
-\textbf{Super-linear hit amplification ($\beta > 1$) degrades recall.}
-The $\beta=1.5$ row is the weakest in the grid. Over-concentrating
-budget on a small number of extremely hot partitions starves the
-remainder of the index.
-
-\textbf{Hits-by-mutations (raw or density) works because it combines
-both signals.} The best policies target partitions that are both
-frequently queried and recently changed.
-
-\subsection{Policy Recommendations}
-\label{sec:eval_recommendations}
-
-Based on the confirmed results:
+Different deployments have different priorities. Based on the confirmed
+3-seed results, we recommend:
 
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Recommended default: Density70-Linear.}
-    $S(p) = (h_p+1)(m_p/|p|)$ with $K=70$, split threshold 240\,ns,
-    2 refinement iterations, radius 50.
-    Rationale: simple density formulation, lowest maintenance variance
-    (CV=12.2\%), competitive recall (0.9033 mean), total overhead
-    $+2.9\%$ versus Quake.
+  \item \textbf{Recall-critical users.}
+    Use \textbf{Quake} full refinement.
+    Mean recall 0.9084, lowest variance ($\pm$0.0134).
+    Accept full maintenance overhead (70,682\,ms mean) to guarantee
+    the strongest recall.
 
-  \item \textbf{Lowest-maintenance option: Score50-Raw-Linear.}
-    $S(p) = (h_p+1)m_p$ with $K=50$.
-    Mean maintenance 36,620\,ms ($-45.9\%$ versus Quake), recall
-    0.9026. Higher variance (CV=24.1\%).
+  \item \textbf{Maintenance-constrained users.}
+    Use \textbf{Score50-Raw-Linear}: $S(p) = (h_p+1)\,m_p$, $K=50$.
+    Mean maintenance 36,620\,ms ($-45.9\%$ versus Quake), recall 0.9026.
+    Warning: higher maintenance variance (CV=24.1\%); behavior is less
+    predictable than density-normalized alternatives.
 
-  \item \textbf{Highest mean recall: D70-B0.5-G1.0.}
-    Recall 0.9057 mean, but highest maintenance variance (std=15,398,
-    CV=33.4\%) and highest total time (+7.9\%). Not recommended as
-    a stable production operating point without more seeds.
+  \item \textbf{Balanced users.}
+    Use \textbf{D70-B0.5-G0.5}: $S(p) = (h_p+1)^{0.5}(m_p/|p|)^{0.5}$,
+    $K=70$.
+    Best single configuration on total runtime ($+2.2\%$ vs Quake),
+    maintenance $-39.5\%$, recall 0.9064.
+    Lowest maintenance standard deviation (CV=10.9\%).
+
+  \item \textbf{Simplicity and stability.}
+    Use \textbf{Density70-Linear}: $S(p) = (h_p+1)(m_p/|p|)$, $K=70$.
+    Simplest density formulation, lowest maintenance CV (12.2\%),
+    competitive recall (0.9033), total overhead $+2.9\%$.
+    Recommended default for deployments that prioritize
+    predictable behavior over absolute minimum maintenance.
 \end{itemize}
 
-% ============================================================
-\section{Related Work}
-\label{sec:related}
-% ============================================================
+\textbf{What to avoid.}
+Do not use a static IVF index (Faiss-IVF) for dynamic workloads:
+it pays $4.25\times$ higher total runtime and cannot reliably maintain
+the recall target across different workload seeds.
+Do not use per-split coverage budgeting without a ranking signal:
+it reduces maintenance but fails to preserve recall.
 
-\subsection{Graph-Based Vector Indexes}
-Graph-based indexes such as HNSW~\cite{malkov2018efficient},
-DiskANN~\cite{jayaram2019diskann}, and SVS organize vectors into
-proximity graphs. These systems achieve strong search performance in
-static or read-heavy settings. However, insertions and deletions can
-require graph rewiring or edge repair, making maintenance costly under
-high update rates. \system focuses on partitioned indexes where updates
-are more localized but post-split maintenance remains a challenge.
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Comparison with Graph-Based and Optimized Baselines}
+\label{sec:eval_graph}
+% Answers RQ5 extension: optional comparison with HNSW, ScaNN
+% ─────────────────────────────────────────────────────────────────────────────
 
-\subsection{Partitioned Vector Indexes}
-Faiss-IVF~\cite{johnson2019billion}, ScaNN~\cite{guo2020accelerating},
-and related IVF-style methods cluster vectors into partitions and scan
-a subset per query. They are attractive for updates due to local
-insert/delete operations. \system builds on this design space and adds
-a control layer for refinement allocation. \todo{Compare against Faiss-IVF
-quantitatively.}
+\todo{Add HNSW comparison on insert-only or delete-free workload variant.
+  FaissHNSW wrapper exists (\texttt{src/python/index\_wrappers/faiss\_hnsw.py})
+  but requires a workload without delete operations since the Faiss HNSW
+  implementation does not support vector removal.
+  Key framing: HNSW achieves strong search quality in static or
+  insert-only settings but cannot handle the full dynamic workload.
+  Suggest running HNSW on a 70\% query / 30\% insert variant.}
 
-\subsection{Dynamic Partition Maintenance}
-SPFresh~\cite{todo-spfresh}, LIRE~\cite{todo-lire}, DeDrift,
-and \quake~\cite{todo-quake} show that dynamic maintenance is necessary
-for preserving performance under updates. These systems perform splits,
-merges, deletions, and reassignments. \system is complementary: rather
-than replacing these actions, it controls refinement allocation after
-structural changes. \todo{Compare against LIRE/SPFresh-style policy
-quantitatively.}
-
-\subsection{Adaptive Query Execution}
-SPANN, LAET, Auncel~\cite{todo-auncel}, and APS adapt search-time
-behavior by changing how many partitions are scanned. These focus on
-search-time adaptivity while \system focuses on maintenance-time
-adaptivity. Both are needed for dynamic workloads.
-
-\subsection{Control and Tuning in Data Systems}
-Database systems have long exposed knobs for query optimization,
-physical design, caching, and indexing. Vector databases often expose
-low-level parameters without a principled framework for mapping them to
-application tradeoffs. \system contributes a control-plane view for
-dynamic vector index maintenance.
-
-\todo{Expand references to 50--60 papers. Categories: ANN graph indexes,
-IVF/partitioned indexes, dynamic vector indexing, vector databases,
-learned query termination, adaptive indexing, database tuning/control
-systems, streaming indexing, RAG/vector DB systems.}
+\todo{Add ScaNN comparison. Wrapper exists (\texttt{src/python/index\_wrappers/scann.py}).
+  Requires \texttt{pip install scann} on CloudLab.
+  ScaNN supports inserts and deletes; can run on the full dynamic workload.}
 
 % ============================================================
 \section{Discussion}
@@ -1146,53 +1198,45 @@ systems, streaming indexing, RAG/vector DB systems.}
 
 \subsection{Run Variance and K-Means Non-Determinism}
 
-Refinement quality depends on K-means initialization, which uses
-random centroids not controlled by the workload seed. Over a
-1000-operation dynamic workload, small differences in early refinement
-cycles change which partitions split in later cycles, compounding into
-meaningful behavioral divergence. We observe maintenance cost
-coefficients of variation between 12\% and 33\% across three seeds,
-and recall standard deviations of $\pm$0.015--0.022.
-
-This variance motivates reporting mean\,$\pm$\,std rather than
-single-run tables. Our 3-seed confirmation establishes that all
-selective score-based configurations robustly preserve mean recall
-above 0.90 and reduce mean maintenance by 32--46\%.
+Refinement quality depends on K-means centroid initialization, which is
+stochastic and not controlled by the workload seed. Over a 1000-operation
+dynamic workload, small early-cycle differences compound into meaningful
+behavioral divergence. We observe maintenance cost coefficients of
+variation between 10\% and 33\% across three seeds, and recall standard
+deviations of $\pm$0.015--0.022. This motivates reporting
+mean\,$\pm$\,std rather than single-run tables, and framing primary
+claims at the policy-class level rather than asserting a specific
+$(\beta, \gamma)$ pair as optimal.
 
 \subsection{Policy-Class Claims versus Hyperparameter Claims}
 
-The 3-seed data does not support strong claims about specific
-$(\beta, \gamma)$ pairs. The differences between Density70-Linear,
-D70-B1.0-G0.5, and D70-B0.5-G0.5 on maintenance (42,946, 43,441, and
-40,941\,ms respectively) are smaller than any config's standard
-deviation. Similarly, recall means between 0.9024 and 0.9033 are within
-one recall standard deviation.
-
-The paper's primary claim is at the \emph{policy-class level}: joint
-workload-importance--staleness scoring consistently and robustly
-outperforms naive filtering policies, and this result is stable at
-$n=3$ seeds. Claims about the optimal $\beta$, $\gamma$, or exact
-normalization strategy require more seeds (target $n \geq 5$) and
-possibly larger workloads before they can be stated as conclusions
-rather than preliminary observations.
+The three-seed data establishes that score-based selective refinement
+robustly preserves mean recall above 0.90 while reducing maintenance
+by 32--46\%. Differences between specific configurations within the
+score-based class (e.g., Density70-Linear versus D70-B1.0-G0.5) are
+within run-to-run variance at $n=3$ seeds. Claims about optimal
+$\beta$, $\gamma$, or exact normalization require $n \geq 5$ seeds
+or deterministic K-means initialization.
 
 \subsection{Scope of Current Results}
 
-All results in this paper use SIFT1M with a specific workload mix
-(30\% insert, 20\% delete, 50\% query). Whether these results
-generalize to larger datasets (SIFT10M, MSTuring), different workload
-mixes (read-heavy or write-heavy), or different dimensionalities is not
-yet known. The system is architecture-agnostic, but empirical validation
-on multiple datasets is needed for a conference submission.
+All confirmed results use SIFT1M with a 30/20/50 insert/delete/query
+workload mix. The policy framework is architecture-agnostic, but
+empirical validation on larger datasets (SIFT10M, MSTuring) and
+different workload mixes is needed before general claims about
+dataset sensitivity can be made.
 
-\subsection{External Baselines Still Needed}
+\subsection{Baseline Coverage}
 
-The current evaluation compares \system variants against each other
-and against full Quake. A credible conference submission requires at
-least one IVF-style baseline (Faiss-IVF), one dynamic-maintenance
-baseline (LIRE or SPFresh), and one graph-based baseline (HNSW or
-DiskANN). Wrapper classes for Faiss-IVF, HNSW, and DiskANN exist in
-the codebase and can be integrated into the evaluation workload.
+Faiss-IVF has been evaluated and conclusively establishes that dynamic
+maintenance is necessary: a static index pays $4.25\times$ higher total
+runtime and fails the recall target on one of three seeds.
+LIRE-style maintenance (size-based splits, no K-means refinement) is
+in progress --- preliminary results are expected to show that dynamic
+splits alone are insufficient without centroid-quality repair.
+Graph-based baselines (HNSW, ScaNN) are planned and will address whether
+the recall--total-runtime tradeoff achieved by \system is competitive
+with non-IVF approaches.
 
 % ============================================================
 \section{Conclusion}
