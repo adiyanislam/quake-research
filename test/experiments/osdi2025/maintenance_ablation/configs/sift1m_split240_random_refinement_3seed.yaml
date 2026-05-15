@@ -1,0 +1,121 @@
+mode: run
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  recall_target: 0.9
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+  seeds: [9299, 42, 12345]
+
+indexes:
+  - name: Quake
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 100, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      refinement_radius: 50
+      refinement_iterations: 2
+
+  - name: Score50-Raw-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 100, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 50
+      refinement_normalize_mutations: false
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+
+  - name: Density70-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 100, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+
+  - name: D70-B0.5-G0.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 100, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 0.5
+
+  - name: Random50
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 100, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 50
+      refinement_selection_policy: "random"
+      refinement_random_seed: 7777
+
+  - name: Random70
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 100, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_selection_policy: "random"
+      refinement_random_seed: 7777
+
+  - name: Random100
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 100, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 100
+      refinement_selection_policy: "random"
+      refinement_random_seed: 7777
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake:              {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Score50-Raw-Linear: {color: "#ff7f0e", linestyle: "-",  marker: "s"}
+    Density70-Linear:   {color: "#2ca02c", linestyle: "-",  marker: "^"}
+    D70-B0.5-G0.5:     {color: "#9467bd", linestyle: "-",  marker: "D"}
+    Random50:           {color: "#d62728", linestyle: "--", marker: "x"}
+    Random70:           {color: "#8c564b", linestyle: "--", marker: "+"}
+    Random100:          {color: "#e377c2", linestyle: "--", marker: "v"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true

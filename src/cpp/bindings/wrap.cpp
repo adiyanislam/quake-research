@@ -253,6 +253,10 @@ PYBIND11_MODULE(_bindings, m) {
                "Exponent on (hits + 1) in score formula: score = pow(hits+1, beta) * pow(staleness, gamma). Default 1.0.")
         .def_readwrite("refinement_score_gamma", &MaintenancePolicyParams::refinement_score_gamma,
                "Exponent on staleness in score formula: score = pow(hits+1, beta) * pow(staleness, gamma). Default 1.0.")
+        .def_readwrite("refinement_selection_policy", &MaintenancePolicyParams::refinement_selection_policy,
+               "Refinement selection policy: 'score' (default) or 'random'. 'random' selects K candidates uniformly at random.")
+        .def_readwrite("refinement_random_seed", &MaintenancePolicyParams::refinement_random_seed,
+               "Seed for deterministic random selection when policy is 'random'. Default 42.")
 
         .def_readwrite("min_partition_size", &MaintenancePolicyParams::min_partition_size,
              (std::string("Minimum allowed partition size. default = ") + std::to_string(DEFAULT_MIN_PARTITION_SIZE)).c_str())
@@ -286,6 +290,8 @@ PYBIND11_MODULE(_bindings, m) {
             oss << "\"refinement_normalize_mutations\": " << (m.refinement_normalize_mutations ? "true" : "false") << ", ";
             oss << "\"refinement_score_beta\": " << m.refinement_score_beta << ", ";
             oss << "\"refinement_score_gamma\": " << m.refinement_score_gamma << ", ";
+            oss << "\"refinement_selection_policy\": \"" << m.refinement_selection_policy << "\", ";
+            oss << "\"refinement_random_seed\": " << m.refinement_random_seed << ", ";
             oss << "\"min_partition_size\": " << m.min_partition_size << ", ";
             oss << "\"alpha\": " << m.alpha << ", ";
             oss << "\"enable_split_rejection\": " << (m.enable_split_rejection ? "true" : "false") << ", ";

@@ -114,6 +114,12 @@ struct MaintenancePolicyParams {
     double refinement_score_beta = 1.0;  ///< Exponent on (hits + 1) in score formula. Default 1.0 (linear).
     double refinement_score_gamma = 1.0; ///< Exponent on staleness in score formula. Default 1.0 (linear).
 
+    /// Refinement selection policy: "score" (default) or "random".
+    /// "random" selects K candidates uniformly at random from the candidate set
+    /// instead of ranking by score. Uses refinement_top_k_score as the budget K.
+    std::string refinement_selection_policy = "score";
+    int refinement_random_seed = 42; ///< Seed for deterministic random selection when policy is "random".
+
     float delete_threshold_ns = DEFAULT_DELETE_THRESHOLD_NS;
     float split_threshold_ns = DEFAULT_SPLIT_THRESHOLD_NS;
 

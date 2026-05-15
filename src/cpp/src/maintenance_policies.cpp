@@ -10,6 +10,7 @@
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
+#include <random>
 
 using std::chrono::steady_clock;
 using std::chrono::microseconds;
@@ -320,51 +321,61 @@ void MaintenancePolicy::local_refinement(const torch::Tensor &partition_ids) {
 
     // Combined score ranking: (hits + 1) * mutations_since_refinement
     if (params_->refinement_top_k_score > 0) {
-        std::vector<std::pair<int64_t, double>> scored_candidates;
-        scored_candidates.reserve(candidate_ids.size());
-
-        for (int64_t pid : candidate_ids) {
-            int64_t hits = 0;
-            auto hit_it = aggregated_hits.find(pid);
-            if (hit_it != aggregated_hits.end()) {
-                hits = hit_it->second;
-            }
-
-            int64_t mutations = partition_manager_->get_partition_mutation_count(pid);
-            double staleness;
-            if (params_->refinement_normalize_mutations) {
-                int64_t size = partition_manager_->get_partition_size(pid);
-                staleness = (size > 0)
-                    ? static_cast<double>(mutations) / static_cast<double>(size)
-                    : static_cast<double>(mutations);
-            } else {
-                staleness = static_cast<double>(mutations);
-            }
-            double score = std::pow(static_cast<double>(hits + 1), params_->refinement_score_beta)
-                         * std::pow(staleness, params_->refinement_score_gamma);
-
-            scored_candidates.emplace_back(pid, score);
-        }
-
-        std::sort(scored_candidates.begin(), scored_candidates.end(),
-                  [](const auto& a, const auto& b) {
-                      if (a.second != b.second) {
-                          return a.second > b.second;
-                      }
-                      return a.first < b.first;
-                  });
-
-        std::vector<int64_t> top_ids;
         int64_t limit = std::min<int64_t>(
             params_->refinement_top_k_score,
-            static_cast<int64_t>(scored_candidates.size()));
-        top_ids.reserve(limit);
+            static_cast<int64_t>(candidate_ids.size()));
 
-        for (int64_t i = 0; i < limit; i++) {
-            top_ids.push_back(scored_candidates[i].first);
+        if (params_->refinement_selection_policy == "random") {
+            // Random selection: shuffle candidates deterministically and take top-K.
+            // Same candidate set and same budget as score-based, but no ranking signal.
+            std::mt19937 rng(static_cast<unsigned>(params_->refinement_random_seed));
+            std::shuffle(candidate_ids.begin(), candidate_ids.end(), rng);
+            candidate_ids.resize(limit);
+        } else {
+            // Score-based selection (default path)
+            std::vector<std::pair<int64_t, double>> scored_candidates;
+            scored_candidates.reserve(candidate_ids.size());
+
+            for (int64_t pid : candidate_ids) {
+                int64_t hits = 0;
+                auto hit_it = aggregated_hits.find(pid);
+                if (hit_it != aggregated_hits.end()) {
+                    hits = hit_it->second;
+                }
+
+                int64_t mutations = partition_manager_->get_partition_mutation_count(pid);
+                double staleness;
+                if (params_->refinement_normalize_mutations) {
+                    int64_t size = partition_manager_->get_partition_size(pid);
+                    staleness = (size > 0)
+                        ? static_cast<double>(mutations) / static_cast<double>(size)
+                        : static_cast<double>(mutations);
+                } else {
+                    staleness = static_cast<double>(mutations);
+                }
+                double score = std::pow(static_cast<double>(hits + 1), params_->refinement_score_beta)
+                             * std::pow(staleness, params_->refinement_score_gamma);
+
+                scored_candidates.emplace_back(pid, score);
+            }
+
+            std::sort(scored_candidates.begin(), scored_candidates.end(),
+                      [](const auto& a, const auto& b) {
+                          if (a.second != b.second) {
+                              return a.second > b.second;
+                          }
+                          return a.first < b.first;
+                      });
+
+            std::vector<int64_t> top_ids;
+            top_ids.reserve(limit);
+
+            for (int64_t i = 0; i < limit; i++) {
+                top_ids.push_back(scored_candidates[i].first);
+            }
+
+            candidate_ids = std::move(top_ids);
         }
-
-        candidate_ids = std::move(top_ids);
 
     // Fallback: pure hit-based ranking
     } else if (params_->refinement_top_k_hits > 0) {
