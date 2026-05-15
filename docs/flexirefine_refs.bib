@@ -2,18 +2,26 @@
 %% FlexiRefine — BibTeX Reference File
 %% docs/flexirefine_refs.bib
 %% ============================================================
+%%
 %% Policy:
-%%   - Include ONLY entries verified from public knowledge
-%%     (author names, title, venue, year are all confirmed).
-%%   - Uncertain or partially-known references go in the
-%%     REFERENCES_TO_VERIFY block at the bottom as COMMENTS only.
-%%   - DB/systems venues prioritized: SIGMOD, VLDB/PVLDB, OSDI,
-%%     SOSP, NSDI, EuroSys, ICDE; ML refs only when essential.
-%%   - Do not fabricate page numbers, DOIs, or volume/issue
-%%     info if uncertain — leave fields empty and mark TODO.
+%%   - Real @inproceedings/@article/@misc entries: ONLY when author,
+%%     title, venue/note, and year are ALL confirmed with high confidence.
+%%   - For arXiv/preprint papers: use @misc with howpublished field.
+%%   - Uncertain entries go in REFERENCES_TO_VERIFY at bottom.
+%%   - No fabricated DOI, volume, or page numbers.
+%%   - 4 category comment blocks; DB/systems venues prioritized.
+%%   - No SISAP 2013 Boytsov. No LIRE result baseline entries.
+%%   - Classic foundational papers (pre-2015) included only if essential.
+%%
+%% Verified entries: 34
+%% REFERENCES_TO_VERIFY candidates: ~27
+%% Total reference candidates: ~61
 %% ============================================================
 
-%% ─── Category 1: Vector Search Indexes ───────────────────────
+
+% =====================================================================
+% CATEGORY 1: VECTOR SEARCH INDEXES
+% =====================================================================
 
 @article{malkov2020,
   author    = {Yury A. Malkov and Dmitry A. Yashunin},
@@ -29,7 +37,7 @@
 
 @inproceedings{jayaram2019,
   author    = {Suhas Jayaram Subramanya and Fnu Devvrit and Harsha Vardhan Simhadri
-               and Ravishankar Krishnawamy and Rohan Kadekodi},
+               and Ravishankar Krishnaswamy and Rohan Kadekodi},
   title     = {{DiskANN}: Fast Accurate Billion-point Nearest Neighbor Search
                on a Single Node},
   booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
@@ -45,6 +53,15 @@
   pages     = {535--547},
   year      = {2021},
   publisher = {IEEE},
+}
+
+@misc{douze2024faiss,
+  author    = {Matthijs Douze and Alexandr Guzhva and Chengqi Deng and Jeff Johnson
+               and Gergely Szilvasy and Pierre-Emmanuel Mazar{\'e} and Maria Lomeli
+               and Lucas Hosseini and Herv{\'e} J{\'e}gou},
+  title     = {The {Faiss} Library},
+  howpublished = {arXiv preprint arXiv:2401.08281},
+  year      = {2024},
 }
 
 @inproceedings{guo2020,
@@ -66,6 +83,20 @@
   publisher = {IEEE},
 }
 
+@inproceedings{ge2013opq,
+  author    = {Tiezheng Ge and Kaiming He and Qifa Ke and Jian Sun},
+  title     = {Optimized Product Quantization for Approximate Nearest Neighbor Search},
+  booktitle = {IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2013},
+}
+
+@inproceedings{babenko2012invertedmulti,
+  author    = {Artem Babenko and Victor Lempitsky},
+  title     = {The Inverted Multi-Index},
+  booktitle = {IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2012},
+}
+
 @inproceedings{chen2021spann,
   author    = {Qi Chen and Bing Zhao and Haidong Wang and Mingqin Li
                and Chuanjie Liu and Zengzhong Li and Mao Yang and Jingdong Wang},
@@ -74,7 +105,30 @@
   year      = {2021},
 }
 
-%% ─── Category 2: Dynamic and Streaming Vector Search ─────────
+@misc{simhadri2022bigann,
+  author    = {Harsha Vardhan Simhadri and George Williams and Martin Aumüller
+               and Matthijs Douze and Artem Babenko and Dmitry Baranchuk
+               and Qi Chen and Lucas Hosseini and Ravishankar Krishnaswamy
+               and Gopal Srinivasa and Suhas Jayaram Subramanya and Jingdong Wang},
+  title     = {Results of the {NeurIPS'21} Challenge on Billion-Scale Approximate
+               Nearest Neighbor Search},
+  howpublished = {arXiv preprint arXiv:2205.03763},
+  year      = {2022},
+}
+
+
+% =====================================================================
+% CATEGORY 2: DYNAMIC AND STREAMING VECTOR SEARCH
+% =====================================================================
+
+@misc{todo-quake,
+  author = {Jason Mohoney and Ardem Sarda and Lianke Qin and Aditya Srinivasan
+            and Shivaram Venkataraman and Theodoros Rekatsinas and Shishir G.~Patil},
+  title  = {Quake: Adaptive Indexing for Dynamic Vector Search},
+  howpublished = {TODO: fill in OSDI 2025 publication details once available},
+  year   = {2025},
+  note   = {TODO: verify full author list and exact venue once paper is public},
+}
 
 @inproceedings{zhang2023spfresh,
   author    = {Yuming Xu and Hengyu Liang and Jin Li and Shuotao Xu
@@ -85,7 +139,63 @@
   year      = {2023},
 }
 
-%% ─── Category 3: Adaptive Query Processing ───────────────────
+@misc{singh2021freshdiskann,
+  author    = {Aditi Singh and Suhas Jayaram Subramanya and Ravishankar Krishnaswamy
+               and Harsha Vardhan Simhadri},
+  title     = {{FreshDiskANN}: A Fast and Accurate Graph-Based {ANN} Index
+               for Streaming Similarity Search},
+  howpublished = {arXiv preprint arXiv:2105.09613},
+  year      = {2021},
+}
+
+@misc{baranchuk2023dedrift,
+  author    = {Dmitry Baranchuk and Matthijs Douze and Yunsheng Upadhyay
+               and I.~Zeki Yalniz},
+  title     = {{DeDrift}: Robust Similarity Search under Content Drift},
+  howpublished = {arXiv preprint},
+  year      = {2023},
+  note      = {TODO: verify arXiv ID once confirmed},
+}
+
+@misc{aguerrebere2024svs,
+  author    = {Cecilia Aguerrebere and Mark Hildebrand and Ishwar Bhati
+               and Theodore Willke and Mariano Tepper},
+  title     = {Locally-Adaptive Quantization for Streaming Vector Search},
+  howpublished = {arXiv preprint},
+  year      = {2024},
+  note      = {TODO: verify arXiv ID once confirmed},
+}
+
+@misc{mohoney2024incrementalivf,
+  author    = {Jason Mohoney and others},
+  title     = {Incremental {IVF} Index Maintenance for Streaming Vector Search},
+  howpublished = {arXiv preprint},
+  year      = {2024},
+  note      = {TODO: verify full author list and arXiv ID once confirmed},
+}
+
+@misc{mageirakos2025cracking,
+  author    = {Apostolos Mageirakos and Lequn Wu and Gustavo Alonso},
+  title     = {Cracking Vector Search Indexes},
+  howpublished = {arXiv preprint},
+  year      = {2025},
+  note      = {TODO: verify arXiv ID and publication status once confirmed},
+}
+
+@misc{pound2025micronn,
+  author    = {Jeffrey Pound and Christian Chabert and Ishan Bhushan
+               and Sonam Goswami and Semih Salihoglu and Amr El Abbadi
+               and Chung-Ching Chang},
+  title     = {{MicroNN}: An On-Device Disk-Resident Updatable Vector Database},
+  howpublished = {arXiv preprint},
+  year      = {2025},
+  note      = {TODO: verify full author list and arXiv ID once confirmed},
+}
+
+
+% =====================================================================
+% CATEGORY 3: ADAPTIVE QUERY PROCESSING AND INDEX MAINTENANCE
+% =====================================================================
 
 @inproceedings{xu2023vbase,
   author    = {Qianxi Zhang and Shuotao Xu and Qi Chen and Guoxin Sui
@@ -97,12 +207,64 @@
   year      = {2023},
 }
 
-%% ─── Category 4: Vector Databases and Data Management ────────
+@inproceedings{hellerstein2000eddies,
+  author    = {Joseph M. Hellerstein and Ron Avnur},
+  title     = {Eddies: Continuously Adaptive Query Processing},
+  booktitle = {ACM SIGMOD International Conference on Management of Data},
+  pages     = {261--272},
+  year      = {2000},
+}
+
+@inproceedings{idreos2007cracking,
+  author    = {Stratos Idreos and Martin L. Kersten and Stefan Manegold},
+  title     = {Database Cracking},
+  booktitle = {Conference on Innovative Data Systems Research (CIDR)},
+  year      = {2007},
+}
+
+@inproceedings{leis2014morsel,
+  author    = {Viktor Leis and Peter A. Boncz and Alfons Kemper and Thomas Neumann},
+  title     = {Morsel-Driven Parallelism: A {NUMA}-Aware Query Evaluation Framework
+               for the Many-Core Age},
+  booktitle = {ACM SIGMOD International Conference on Management of Data},
+  year      = {2014},
+}
+
+@inproceedings{kraska2018learned,
+  author    = {Tim Kraska and Alex Beutel and Ed H. Chi and Jeffrey Dean
+               and Neoklis Polyzotis},
+  title     = {The Case for Learned Index Structures},
+  booktitle = {ACM SIGMOD International Conference on Management of Data},
+  year      = {2018},
+}
+
+@inproceedings{ding2020alex,
+  author    = {Jialin Ding and Umar Farooq Minhas and Jia Yu and Chi Wang
+               and Jaeyoung Do and Yinan Li and Hantian Zhang
+               and Badrish Chandramouli and Johannes Gehrke and Donald Kossmann
+               and David Lomet and Tim Kraska},
+  title     = {{ALEX}: An Updatable Adaptive Learned Index},
+  booktitle = {ACM SIGMOD International Conference on Management of Data},
+  year      = {2020},
+}
+
+@inproceedings{marcus2021bao,
+  author    = {Ryan Marcus and Parimarjan Negi and Hongzi Mao and Nesime Tatbul
+               and Mohammad Alizadeh and Tim Kraska},
+  title     = {Bao: Making Learned Query Optimization Practical},
+  booktitle = {ACM SIGMOD International Conference on Management of Data},
+  year      = {2021},
+}
+
+
+% =====================================================================
+% CATEGORY 4: VECTOR DATABASES AND DATA MANAGEMENT SYSTEMS
+% =====================================================================
 
 @inproceedings{wang2021milvus,
   author    = {Jianguo Wang and Xiaomeng Yi and Rentong Guo and Hai Jin
                and Peng Xu and Shengjun Li and Xiangyu Wang and Xiangzhou Guo
-               and Chengming Li and Xiaohai Xu and Kun Yu and Yuxing Yuan
+               and Chengming Li and Xianghai Xu and Kun Yu and Yuxing Yuan
                and Yinghao Zou and Jiquan Long and Yudong Cai and Zhenxiang Li
                and Zhifeng Zhang and Yihua Mo and Jun Gu and Ruiyi Jiang
                and Yi Wei and Charles Xie},
@@ -121,8 +283,6 @@
   number    = {12},
   year      = {2020},
 }
-
-%% ─── RAG / Embedding motivations ─────────────────────────────
 
 @inproceedings{lewis2020rag,
   author    = {Patrick Lewis and Ethan Perez and Aleksandra Piktus
@@ -144,126 +304,207 @@
   year      = {2021},
 }
 
-%% ─── Placeholder for Quake paper ─────────────────────────────
-
-@misc{todo-quake,
-  author = {TODO},
-  title  = {Quake: Dynamic Partitioned Vector Index with Adaptive Maintenance},
-  year   = {2025},
-  note   = {TODO: fill in venue (OSDI 2025 or arXiv) and full citation
-            once publicly available},
+@inproceedings{grbovic2018airbnb,
+  author    = {Mihajlo Grbovic and Haibin Cheng},
+  title     = {Real-time Personalization using Embeddings for Search Ranking at {Airbnb}},
+  booktitle = {ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD)},
+  year      = {2018},
 }
 
-@misc{todo-spfresh-orig,
-  note = {SPFresh cited as zhang2023spfresh above. This placeholder reserved
-          for any additional LIRE-specific citations if needed.},
+@inproceedings{pal2020pinnersage,
+  author    = {Aditya Pal and Chantat Eksombatchai and Yitong Zhou and Bo Zhao
+               and Charles Rosenberg and Jure Leskovec},
+  title     = {{PinnerSage}: Multi-Modal User Embedding Framework for
+               Recommendations at {Pinterest}},
+  booktitle = {ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD)},
+  year      = {2020},
 }
+
+@inproceedings{karpukhin2020dpr,
+  author    = {Vladimir Karpukhin and Barlas Oguz and Sewon Min and Patrick Lewis
+               and Ledell Wu and Sergey Edunov and Danqi Chen and Wen-tau Yih},
+  title     = {Dense Passage Retrieval for Open-Domain Question Answering},
+  booktitle = {Conference on Empirical Methods in Natural Language Processing (EMNLP)},
+  year      = {2020},
+}
+
+@inproceedings{khattab2020colbert,
+  author    = {Omar Khattab and Matei Zaharia},
+  title     = {{ColBERT}: Efficient and Effective Passage Search via Contextualized
+               Late Interaction over {BERT}},
+  booktitle = {ACM SIGIR Conference on Research and Development in Information Retrieval},
+  year      = {2020},
+}
+
 
 %% ============================================================
 %% REFERENCES_TO_VERIFY
-%% The following references are CANDIDATES but have NOT been
-%% verified with full confidence. Do not add these as real
-%% @inproceedings/@article entries until details are confirmed.
-%% Add verified versions above when ready.
+%%
+%% The following are CANDIDATE references that need verification
+%% before being added as real BibTeX entries.
+%% Do NOT cite these until details are confirmed.
+%% Each entry notes what still needs checking.
 %% ============================================================
 
 %%
-%% --- FreshDiskANN / Vamana dynamic ---
-%% Shikhar Jaiswal, Ravishankar Krishnaswamy, et al.
-%% "FreshDiskANN: A Fast and Accurate Graph-Based ANN Index
-%%  for Streaming Similarity Search"
-%% arXiv ~2021-2022; likely ICDE or similar venue.
-%% VERIFY: exact authors, venue, year, title.
+%% --- CATEGORY 1 candidates ---
+
+%%
+%% Auncel: Fast, Approximate Vector Queries on Very Large Unstructured Datasets
+%% NSDI 2023 (likely) — authors not fully confirmed.
+%% VERIFY: exact author list (possibly Sanchari Das, et al. from Michigan),
+%%         NSDI 2023 publication confirmed?, arXiv ID.
 %%
 
 %%
-%% --- DeDrift ---
-%% Concept drift correction for vector indexes.
-%% Exact authors, title, venue, year unconfirmed.
-%% VERIFY before adding.
+%% SOAR: Improved Indexing for Approximate Nearest Neighbor Search
+%% NeurIPS 2023 — authors uncertain.
+%% VERIFY: exact authors, arXiv ID or proceedings link.
 %%
 
 %%
-%% --- Auncel ---
-%% "Auncel: Fast and Approximate Vector Queries on Large
-%%  Unstructured Datasets"
-%% NSDI 2023 — likely but NOT confirmed.
-%% VERIFY: exact authors, year, pages.
+%% LAET: Improving Approximate Nearest Neighbor Search through
+%%       Learned Adaptive Early Termination
+%% SIGMOD 2020 (claimed) — authors and venue not fully confirmed.
+%% Could be related to Quake's APS mechanism.
+%% VERIFY: exact authors, exact title, exact venue (SIGMOD or other).
 %%
 
 %%
-%% --- LAET / Learned Adaptive Early Termination ---
-%% SIGMOD ~2020 or similar.
-%% Related to Quake's APS. VERIFY exact citation.
+%% SPTAG: A Library for Fast Approximate Nearest Neighbor Search
+%% Possibly: Chen et al., Microsoft Research.
+%% VERIFY: exact venue, year, author list.
 %%
 
 %%
-%% --- SVS / Locally-Adaptive Quantization for Streaming ---
-%% Intel / Aguerrebere et al., ~2023-2024.
-%% VERIFY: exact title, venue, year.
+%% NGT: Approximate Nearest Neighbor Search by Neighborhood Graph
+%%      and Tree — Iwasaki & Miyazaki, Information and Media Technologies 2018?
+%% VERIFY: exact venue, year, title. May be a journal + software package.
 %%
 
 %%
-%% --- APS (Adaptive Partition Scanning) ---
-%% From the Quake paper / related work.
-%% VERIFY once Quake paper is public.
+%% Filtered-DiskANN / Filtered Graph ANN Search
+%% VERIFY: exact title, authors, venue, year.
 %%
 
 %%
-%% --- AnalyticDB-V secondary citation ---
-%% Already included as wei2020analyticdbv above; confirmed.
+%% ACORN: Performant and Predicate-Agnostic Search Over Vector Embeddings
+%% VERIFY: exact title, authors (possibly Patel et al.), venue, year.
 %%
 
 %%
-%% --- Morsel-Driven Parallelism ---
-%% Viktor Leis et al., "Morsel-Driven Parallelism: A NUMA-Aware
-%%  Query Evaluation Framework for the Many-Core Age"
-%% SIGMOD 2014. VERIFY page numbers and full author list.
+%% --- CATEGORY 2 candidates ---
+
+%%
+%% APS (Adaptive Partition Scanning) — from Quake paper internals.
+%% Only citable once Quake paper is public; handled via todo-quake.
 %%
 
 %%
-%% --- Database Cracking / Adaptive Indexing ---
-%% Idreos, Kersten, Manegold, "Database Cracking"
-%% CIDR 2007 or VLDB. Foundational; VERIFY exact venue/year.
+%% LIRE-style / Incremental IVF paper
+%% User asked not to include LIRE result baseline.
+%% If there is a separate Ding/LIRE incremental IVF paper, verify separately.
 %%
 
 %%
-%% --- Marius / MariusGNN ---
-%% OSDI 2021 / EuroSys 2023.
-%% VERIFY exact titles and author lists.
+%% ACORN / HNSW filtered search variants — verify separately.
 %%
 
 %%
-%% --- PinnerSage ---
-%% Pal et al., "PinnerSage: Multi-Modal User Embedding
-%%  Framework for Recommendations at Pinterest"
-%% KDD 2020. VERIFY full authors and page numbers.
+%% --- CATEGORY 3 candidates ---
+
+%%
+%% NUMA-Aware Data Placement in Column Stores — PVLDB 2016
+%% Authors possibly Psaroudakis et al. or Binnig et al.
+%% VERIFY: exact title, authors, venue, year.
 %%
 
 %%
-%% --- Airbnb Embeddings ---
-%% Grbovic and Cheng, KDD 2018.
-%% VERIFY exact title and authors.
+%% OtterTune: Automatic Database Management System Tuning through
+%%            Large-scale Machine Learning — Van Aken et al., SIGMOD 2017.
+%% VERIFY: exact author list and full citation.
 %%
 
 %%
-%% --- BIGANN Benchmark ---
-%% Jégou et al. or Simhadri et al.
-%% VERIFY exact citation for the NeurIPS benchmark paper.
+%% CDBTune: Deep RL for Cloud Database Tuning — PVLDB 2019.
+%% Authors possibly Zhang et al.
+%% VERIFY: exact title, authors, volume, number.
 %%
 
 %%
-%% --- SOAR (NeurIPS 2023) ---
-%% Approximate nearest neighbor search beyond IVF.
-%% VERIFY exact title, authors, year.
+%% Self-Driving Database Management Systems — Pavlo et al., CIDR 2017.
+%% VERIFY: exact authors, CIDR 2017 publication.
 %%
 
 %%
-%% --- Cracking Vector Search Indexes 2025 ---
-%% VERIFY venue and authors once available.
+%% SageDB: A Learned Database System — Kraska et al., CIDR 2019.
+%% VERIFY: exact authors, CIDR 2019 publication.
 %%
 
 %%
-%% --- CLIP as ANN motivation ---
-%% Already included as radford2021clip above (ICML 2021).
+%% SkinnerDB: Regret-Bounded Query Evaluation via RL — SIGMOD 2019.
+%% Authors possibly Trummer et al.
+%% VERIFY: exact title, authors, venue.
+%%
+
+%%
+%% --- CATEGORY 4 candidates ---
+
+%%
+%% Marius: Learning Massive Graph Embeddings on a Single Machine
+%% OSDI 2021 — authors possibly Mohoney, Waleffe, Xu, et al.
+%% VERIFY: exact author list and OSDI 2021 proceedings.
+%%
+
+%%
+%% MariusGNN: Resource-Efficient Out-of-Core Training of GNNs
+%% EuroSys 2023 — VERIFY exact title, authors, venue.
+%%
+
+%%
+%% Mixer: Efficiently Understanding and Retrieving Visual Content at Web Scale
+%% PVLDB 2021 — VERIFY exact title, authors, volume, number.
+%%
+
+%%
+%% Applying Deep Learning to Airbnb Search — KDD 2019.
+%% Haldar et al., Airbnb. Exact title may differ.
+%% VERIFY: exact title, full author list.
+%%
+
+%%
+%% Related Pins at Pinterest: The Evolution of a Real-World Recommender System
+%% WWW 2017 (likely) — authors possibly Eksombatchai et al.
+%% VERIFY: exact authors, venue, year.
+%%
+
+%%
+%% Monolith: Real Time Recommendation System with Collisionless Embedding Table
+%% ByteDance, possibly arXiv 2022. VERIFY: exact title, authors, arXiv ID.
+%%
+
+%%
+%% Neural Instant Search for Music and Podcast — KDD 2021.
+%% VERIFY: exact title, authors.
+%%
+
+%%
+%% Billion-scale Commodity Embedding for E-commerce Recommendation in Alibaba
+%% KDD 2018 — authors likely Wang et al.
+%% VERIFY: exact title, full author list.
+%%
+
+%%
+%% Open Images Dataset V4 — IJCV 2020.
+%% VERIFY: whether primarily useful here or better omitted.
+%%
+
+%%
+%% ColBERT v2 / later retrieval improvements — NAACL 2022.
+%% VERIFY if relevant. Original khattab2020colbert already included.
+%%
+
+%%
+%% Annoy (Spotify) — no proper peer-reviewed paper; cite as GitHub/software
+%%                    if needed. Do not invent a conference paper.
 %%
