@@ -1,0 +1,102 @@
+# Faiss-HNSW Fine-Grained Tuning — INSERT-ONLY workload, single seed 9299
+#
+# Purpose:
+#   Coarse tuning (sift1m_hnsw_tuning_seed9299.yaml) showed:
+#     ef32  → recall 0.8868  (just under 0.90 target)
+#     ef64  → recall 0.9478  (overshoots target)
+#   This config sweeps the gap: ef_search = {36, 40, 44, 48, 56}
+#   to find the smallest efSearch that reliably reaches ~0.90 recall.
+#
+# Workload — INSERT-ONLY (delete_ratio: 0.0):
+#   Identical to the coarse tuning run.  DO NOT compare against 30/20/50
+#   delete-workload numbers.
+#
+# After this run, pick the lowest efSearch with mean recall >= 0.90 and
+# update sift1m_hnsw_insertonly_3seed.yaml accordingly.
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.5
+  delete_ratio: 0.0
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 1000
+  query_batch_size: 100
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Fine efSearch sweep (M=32, efConstruction=200) ────────────────────────
+  - name: HNSW-M32-ef36
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 36}
+
+  - name: HNSW-M32-ef40
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 40}
+
+  - name: HNSW-M32-ef44
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 44}
+
+  - name: HNSW-M32-ef48
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 48}
+
+  - name: HNSW-M32-ef56
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 56}
+
+  # ── Quake (full refinement) on insert-only workload ────────────────────────
+  - name: Quake-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Density70-Linear on insert-only workload ───────────────────────────────
+  - name: Density70-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    HNSW-M32-ef36:       {color: "#c6dbef", linestyle: "--", marker: "v"}
+    HNSW-M32-ef40:       {color: "#9ecae1", linestyle: "--", marker: "^"}
+    HNSW-M32-ef44:       {color: "#6baed6", linestyle: "--", marker: "o"}
+    HNSW-M32-ef48:       {color: "#2171b5", linestyle: "--", marker: "s"}
+    HNSW-M32-ef56:       {color: "#08306b", linestyle: "--", marker: "D"}
+    Quake-InsertOnly:    {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Density70-InsertOnly: {color: "#17becf", linestyle: "-",  marker: "P"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true
