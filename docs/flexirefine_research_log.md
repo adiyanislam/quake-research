@@ -685,3 +685,140 @@ approval before implementation.
 1. Should `multiseed_summary` report mean±std only, or also preserve per-seed rows?
 2. Should per-seed `unified_plot.png` be generated inside each `seed_{s}/` subdir?
 3. Should `overwrite_workload: false` skip regeneration if `seed_{s}/runbook.json` exists?
+
+---
+
+## 11. Faiss-HNSW Baseline — Insert-Only Workload Results
+
+**Branch:** `flexirefine-faiss-hnsw-baseline`
+**Date:** 2026-05-19
+**Status:** CONFIRMED (3 seeds). Insert-only baseline only — do not compare against
+30/20/50 delete-workload tables.
+
+### Background and Fairness Constraint
+
+Faiss-HNSW does not support true vector deletion. Running it on the standard
+30/20/50 insert/delete/query workload would require silently ignoring deletes, which
+produces incorrect recall measurements. Decision: use a dedicated insert-only workload
+(`delete_ratio: 0.0`, `insert_ratio: 0.5`, `query_ratio: 0.5`) for all HNSW comparisons.
+
+### Implementation Changes (branch `flexirefine-faiss-hnsw-baseline`)
+
+Three bugs were fixed in `src/python/index_wrappers/faiss_hnsw.py`:
+
+1. **Wrong recall from missing ID mapping.** HNSW internally uses 0-based sequential
+   IDs; without mapping, search results did not match workload ground-truth IDs.
+   Fix: wrap `IndexHNSWFlat` with `faiss.IndexIDMap`; use `add_with_ids` in `build()`
+   and `add()`.
+
+2. **`add()` missing `ids` kwarg.** `WorkloadEvaluator` calls `index.add(vecs, ids=ids)`.
+   Fix: add `ids: Optional[torch.Tensor] = None` parameter to `add()`.
+
+3. **`index_state()` returned `""` not `dict`.** `row.update("")` raises `TypeError`.
+   Fix: return `{"n_total": int(self.index.ntotal), "n_list": 0}`.
+
+4. **`hnsw.efSearch` inaccessible after `load()`.** After `faiss.read_index()`,
+   `self.index.index` is a generic `faiss.Index` with no `.hnsw` attribute.
+   Fix: call `faiss.downcast_index()` once after load and cache the result in
+   `self._hnsw`.
+
+`remove()` intentionally still raises `RuntimeError` to fail loudly on any
+accidental delete-workload config.
+
+### Workload Parameters (insert-only)
+
+```
+dataset:          SIFT1M (128-dim, L2)
+insert_ratio:     0.5
+delete_ratio:     0.0
+query_ratio:      0.5
+number_of_ops:    1000
+initial_size:     100000
+update_batch_size: 1000   (smaller than 30/20/50 configs to avoid pool exhaustion)
+query_batch_size: 100
+cluster_dist:     skewed
+seeds:            [9299, 42, 12345]
+```
+
+Pool check: ~500 insert ops × 1000 = 500k insertions from 900k available. No exhaustion.
+
+### efSearch Tuning (seed 9299 only)
+
+**Coarse sweep** (`sift1m_hnsw_tuning_seed9299.yaml`):
+
+| Config         | Search (ms) | Insert (ms) | Total (ms) | Recall |
+|----------------|-------------|-------------|------------|--------|
+| HNSW-M32-ef16  | 5833        | 146150      | 151984     | 0.7911 |
+| HNSW-M32-ef32  | 7783        | 145934      | 153717     | 0.8868 |
+| HNSW-M32-ef64  | 11351       | 146148      | 157499     | 0.9478 |
+| HNSW-M32-ef128 | 18230       | 146222      | 164452     | 0.9782 |
+
+ef32 just under 0.90; ef64 overshoots to 0.9478. Fine sweep needed.
+
+**Fine sweep** (`sift1m_hnsw_tuning_fine_seed9299.yaml`):
+
+| Config        | Search (ms) | Insert (ms) | Total (ms) | Recall |
+|---------------|-------------|-------------|------------|--------|
+| HNSW-M32-ef36 | 7793        | 131903      | 139697     | 0.8997 |
+| HNSW-M32-ef40 | 8207        | 131761      | 139968     | 0.9103 |
+| HNSW-M32-ef44 | 8618        | 131217      | 139836     | 0.9193 |
+| HNSW-M32-ef48 | 9022        | 131892      | 140914     | 0.9268 |
+| HNSW-M32-ef56 | 9795        | 131434      | 141230     | 0.9388 |
+
+ef40 is the lowest value above 0.90 on seed 9299. Taken to 3-seed confirmation.
+
+### 3-Seed Results — ef40 (`sift1m_hnsw_insertonly_3seed.yaml`)
+
+| Config           | Search ms   | Insert ms       | Maintain ms | Total ms        | Recall          | Partitions |
+|------------------|-------------|-----------------|-------------|-----------------|-----------------|------------|
+| HNSW-M32-ef40    | 7724 ± 388  | 137268 ± 4242   | 0           | 144992 ± 4372   | 0.8956 ± 0.0468 | 0          |
+| Quake-InsertOnly | 17942 ± 922 | 2989 ± 67       | 39080 ± 1776| 60011 ± 977     | 0.8978 ± 0.0187 | 1700 ± 52  |
+| Density70-InsOnly| 21233 ± 654 | 2667 ± 61       | 32544 ± 2537| 56444 ± 2755    | 0.8898 ± 0.0243 | 1216 ± 69  |
+
+Mean recall 0.8956 — just under 0.90 target across 3 seeds. Ran ef44 confirmation.
+
+### 3-Seed Results — ef44 (`sift1m_hnsw_insertonly_3seed_ef44.yaml`) [CONFIRMED]
+
+| Config           | Search ms   | Insert ms       | Maintain ms | Total ms        | Recall          | Partitions |
+|------------------|-------------|-----------------|-------------|-----------------|-----------------|------------|
+| HNSW-M32-ef44    | 8029 ± 344  | 134206 ± 2820   | 0           | 142235 ± 2690   | 0.9049 ± 0.0449 | 0          |
+| Quake-InsertOnly | 17927 ± 1141| 3060 ± 139      | 43768 ± 6399| 64754 ± 5391    | 0.8985 ± 0.0193 | 1785 ± 116 |
+| Density70-InsOnly| 21769 ± 92  | 2666 ± 102      | 35508 ± 4573| 59943 ± 4525    | 0.8904 ± 0.0237 | 1219 ± 78  |
+
+### Interpretation
+
+**Search latency:** HNSW search is 2.2–2.7× faster than Quake/Density70 at comparable
+recall (~0.90). This is expected: HNSW graph traversal is highly optimized for
+static search.
+
+**Insert cost:** HNSW insert time (~134k ms) dominates its total runtime and is
+approximately 43.9× higher than Quake insert time (~3k ms). Graph edge construction
+during insert is expensive; Quake inserts are local partition appends.
+
+**Total runtime:** Despite faster search, HNSW is 2.20× slower total than
+Quake-InsertOnly (142k vs 65k ms) and 2.37× slower than Density70-InsertOnly
+(142k vs 60k ms). The insert cost wipes out the search latency advantage.
+
+**Recall variance:** HNSW recall std is 0.0449 (ef44) vs 0.0187–0.0243 for Quake/
+Density70. HNSW recall is more variable across seeds, likely because graph quality
+depends on insertion order which changes with each seed's skewed cluster sampling.
+
+**Recall at ~0.90:** ef40 (mean 0.8956) is borderline. ef44 (mean 0.9049) is the
+selected operating point for a confirmed ≥0.90 baseline.
+
+### What This Does and Does Not Show
+
+- **Shows:** On a pure insert + query workload, HNSW has much lower per-query
+  latency but much higher insert overhead than Quake/Density70. Total runtime
+  favors Quake by ~2×.
+- **Does not show:** HNSW vs Quake under deletes (HNSW cannot delete).
+- **Does not show:** HNSW total runtime on the main 30/20/50 workload — those
+  numbers are not comparable and must not be mixed into the paper's main table.
+
+### Paper Status
+
+Not yet in the paper. These results are an insert-only baseline only.
+Before adding to the paper: confirm what claim is being made (search latency
+vs total runtime vs recall), note the insert-only limitation explicitly, and
+get advisor sign-off on whether HNSW belongs in the main evaluation or a
+separate "static-index baseline" subsection.
