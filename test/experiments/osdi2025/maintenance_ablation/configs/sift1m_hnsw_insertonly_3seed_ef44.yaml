@@ -1,0 +1,78 @@
+# Faiss-HNSW INSERT-ONLY Baseline — 3-seed confirmation, ef44
+#
+# Purpose:
+#   The ef40 3-seed run (sift1m_hnsw_insertonly_3seed.yaml) returned
+#   mean recall 0.8956 ± 0.0468 — just under the 0.90 target.
+#   ef44 returned recall 0.9193 on seed 9299 (fine tuning run), which
+#   is the next step up without overshooting as badly as ef64.
+#   This config confirms ef44 across all three seeds.
+#
+# Workload — INSERT-ONLY (delete_ratio: 0.0):
+#   Identical workload to sift1m_hnsw_insertonly_3seed.yaml.
+#   DO NOT compare against 30/20/50 delete-workload tables.
+#
+# After this run, select the final efSearch for the paper based on
+# which of ef40/ef44 consistently meets mean recall >= 0.90.
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seeds: [9299, 42, 12345]
+  insert_ratio: 0.5
+  delete_ratio: 0.0
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 1000
+  query_batch_size: 100
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Faiss-HNSW ef44 (M=32, efConstruction=200) ────────────────────────────
+  - name: HNSW-M32-ef44
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 44}
+
+  # ── Quake full refinement on insert-only workload ──────────────────────────
+  - name: Quake-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Density70-Linear on insert-only workload ───────────────────────────────
+  - name: Density70-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    HNSW-M32-ef44:       {color: "#2171b5", linestyle: "--", marker: "o"}
+    Quake-InsertOnly:    {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Density70-InsertOnly: {color: "#17becf", linestyle: "-",  marker: "P"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true
