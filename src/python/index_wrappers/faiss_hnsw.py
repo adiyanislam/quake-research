@@ -135,9 +135,12 @@ class FaissHNSW(IndexWrapper):
         assert k > 0
 
         # Set efSearch on the underlying HNSW struct.
-        # After load(), self._hnsw may be None; recover from the ID-map wrapper.
-        hnsw_idx = self._hnsw if self._hnsw is not None else self.index.index
-        hnsw_idx.hnsw.efSearch = ef_search
+        # After load(), self._hnsw is None and self.index.index is a generic
+        # faiss.Index object (no .hnsw attribute).  Downcast it once and cache.
+        if self._hnsw is None:
+            base = self.index.index if hasattr(self.index, "index") else self.index
+            self._hnsw = faiss.downcast_index(base)
+        self._hnsw.hnsw.efSearch = ef_search
 
         query_np = to_numpy(query)
 
