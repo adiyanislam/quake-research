@@ -50,12 +50,12 @@ workload_generator:
   query_cluster_sample_distribution: uniform
 
 indexes:
-  # ── Faiss-HNSW (M=32, efSearch selected from tuning run) ──────────────────
-  # UPDATE ef_search after reviewing sift1m_hnsw_tuning_seed9299 results.
-  - name: HNSW-M32-ef64
+  # ── Faiss-HNSW (M=32, efSearch=40 selected from fine tuning run) ──────────
+  # ef40 is the lowest efSearch >= 0.90 recall on seed 9299 (recall 0.9103).
+  - name: HNSW-M32-ef40
     index: FaissHNSW
     build_params: {m: 32, ef_construction: 200, metric: l2}
-    search_params: {k: 10, ef_search: 64}
+    search_params: {k: 10, ef_search: 40}
 
   # ── Quake full refinement on insert-only workload ──────────────────────────
   - name: Quake-InsertOnly
@@ -85,7 +85,7 @@ plot:
   x_axis: operation_number
   metrics: [latency_ms, recall]
   styles:
-    HNSW-M32-ef64:       {color: "#2171b5", linestyle: "--", marker: "o"}
+    HNSW-M32-ef40:       {color: "#2171b5", linestyle: "--", marker: "o"}
     Quake-InsertOnly:    {color: "#1f77b4", linestyle: "-",  marker: "o"}
     Density70-InsertOnly: {color: "#17becf", linestyle: "-",  marker: "P"}
 
