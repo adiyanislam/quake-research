@@ -202,9 +202,11 @@ class FaissHNSW(IndexWrapper):
         """
         Return a dict of index metadata so WorkloadEvaluator can call
         row.update(index.index_state()) safely.
-        Returns an empty dict (no partition structure to report).
+        n_list is set to 0 (HNSW has no IVF partition structure); n_total
+        reflects the current vector count so plots that use n_list fall back
+        gracefully rather than crashing on a missing column.
         """
-        return {}
+        return {"n_total": int(self.index.ntotal), "n_list": 0}
 
     def centroids(self) -> Union[torch.Tensor, None]:
         """HNSW has no explicit centroids."""
