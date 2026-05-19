@@ -39,12 +39,14 @@ import test.experiments.osdi2025.experiment_utils as common_utils
 # Index wrapper imports
 from quake.index_wrappers.quake import QuakeWrapper
 from quake.index_wrappers.faiss_ivf import FaissIVF
+from quake.index_wrappers.faiss_hnsw import FaissHNSW
 
 # Module-level index class map — add new wrappers here as baselines are added.
 # do_maintenance is automatically disabled for non-Quake indexes (they return None).
 _INDEX_CLASS_MAP = {
-    "Quake":    QuakeWrapper,
-    "FaissIVF": FaissIVF,
+    "Quake":     QuakeWrapper,
+    "FaissIVF":  FaissIVF,
+    "FaissHNSW": FaissHNSW,
 }
 
 logging.basicConfig(level=logging.INFO,

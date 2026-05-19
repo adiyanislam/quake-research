@@ -1,0 +1,95 @@
+# Faiss-HNSW INSERT-ONLY Baseline — 3-seed confirmation
+#
+# Purpose:
+#   Compare Faiss-HNSW against Quake and Density70-Linear on an insert-only
+#   + query workload across three independent seeds.  Results are reported as
+#   mean ± std across seeds {9299, 42, 12345}.
+#
+# Workload — INSERT-ONLY (delete_ratio: 0.0):
+#   Faiss-HNSW does not support true vector removal.  Using insert-only
+#   ensures a fair, apples-to-apples comparison for all three indexes.
+#   DO NOT compare these mean/std numbers against the 30/20/50 delete-workload
+#   tables in the paper.  They measure a different workload mix.
+#
+# HNSW efSearch selection:
+#   Set to the value identified in the tuning run
+#   (sift1m_hnsw_tuning_seed9299.yaml) that achieves ~0.90 mean recall.
+#   Placeholder: ef_search=64 — update after tuning run is reviewed.
+#
+# Fairness notes:
+#   - All three indexes operate on identical workloads per seed.
+#   - Quake and Density70-Linear use APS with recall_target=0.9 (adaptive
+#     probe count); HNSW uses fixed efSearch tuned to the same recall level.
+#   - Quake/Density70 maintenance runs as inserts accumulate (splits/merges);
+#     this is expected behavior for a growing index.
+#   - HNSW retains all inserted vectors in the graph with no merges or deletes;
+#     this is the normal HNSW operating mode.
+#
+# Pool arithmetic:
+#   SIFT1M: 1M vectors, 100k initial → 900k insertable.
+#   insert_ratio=0.5, 1000 ops, update_batch_size=1000
+#   → ~500 insert ops × 1000 = 500k insertions  (<< 900k available)  ✓
+mode: run
+
+dataset:
+  name: sift1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seeds: [9299, 42, 12345]
+  insert_ratio: 0.5
+  delete_ratio: 0.0
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 1000
+  query_batch_size: 100
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Faiss-HNSW (M=32, efSearch selected from tuning run) ──────────────────
+  # UPDATE ef_search after reviewing sift1m_hnsw_tuning_seed9299 results.
+  - name: HNSW-M32-ef64
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 64}
+
+  # ── Quake full refinement on insert-only workload ──────────────────────────
+  - name: Quake-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Density70-Linear on insert-only workload ───────────────────────────────
+  - name: Density70-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    HNSW-M32-ef64:       {color: "#2171b5", linestyle: "--", marker: "o"}
+    Quake-InsertOnly:    {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Density70-InsertOnly:{color: "#17becf", linestyle: "-",  marker: "P"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true

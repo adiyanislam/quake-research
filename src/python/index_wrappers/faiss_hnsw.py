@@ -1,6 +1,7 @@
 import time
 from typing import Optional, Tuple, Union
 
+import numpy as np
 import faiss
 import torch
 
@@ -12,131 +13,199 @@ from quake.utils import to_numpy, to_torch
 
 class FaissHNSW(IndexWrapper):
     """
-    Wrapper class for faiss hnsw indexes.
+    Wrapper for Faiss IndexHNSWFlat with proper external-ID support.
+
+    Faiss HNSW internally assigns 0-based sequential IDs.  We wrap it with
+    faiss.IndexIDMap so that callers can supply arbitrary int64 vector IDs
+    (matching the rest of the evaluation infrastructure) and get them back
+    correctly from search results.
+
+    Limitations (by design):
+    - remove() raises RuntimeError.  Faiss HNSW has no true delete; use
+      insert-only workloads for fair comparisons.
+    - maintenance() is a no-op (returns None) — matches FaissIVF behaviour.
     """
 
-    index: faiss.IndexHNSW
-
     def __init__(self):
+        # self.index  : faiss.IndexIDMap wrapping the HNSW base
+        # self._hnsw  : direct reference to the underlying IndexHNSWFlat,
+        #               kept so we can set efSearch without going through
+        #               IndexIDMap's opaque .index attribute.
         self.index = None
+        self._hnsw = None
 
-    def n_total(self) -> int:
-        """
-        Return the number of vectors in the index.
-
-        :return: The number of vectors in the index.
-        """
-        return self.index.ntotal
-
-    def d(self) -> int:
-        """
-        Return the dimension of the vectors in the index.
-
-        :return: The dimension of the vectors in the index.
-        """
-        return self.index.d
+    # ------------------------------------------------------------------
+    # Core interface
+    # ------------------------------------------------------------------
 
     def build(
         self,
         vectors: torch.Tensor,
         m: int = 32,
-        ef_construction: int = 40,
+        ef_construction: int = 200,
         metric: str = "l2",
         ids: Optional[torch.Tensor] = None,
     ):
         """
-        Build the index with the given vectors and arguments.
+        Build an HNSW index from *vectors*.
 
-        :param vectors: The vectors to build the index with.
-        :param m: The number of neighbors for the HNSW graph, optional. Default is 32.
-        :param ef_construction: The number of neighbors to explore during construction, optional. Default is 40.
+        Parameters
+        ----------
+        vectors : torch.Tensor, shape (n, d)
+        m : int
+            Number of bi-directional links per node (HNSW M parameter).
+        ef_construction : int
+            Size of the dynamic candidate list during graph construction.
+            Default 200 (vs Faiss default of 40) for reasonable graph quality.
+        metric : str
+            "l2" or "ip".
+        ids : torch.Tensor, optional
+            External int64 IDs for each vector.  If None, sequential IDs
+            0..n-1 are assigned automatically.
         """
         assert vectors.ndim == 2
         assert m > 0
 
-        metric = metric_str_to_faiss(metric)
+        faiss_metric = metric_str_to_faiss(metric)
+        vectors_np = to_numpy(vectors)
+        d = vectors_np.shape[1]
 
-        vectors = to_numpy(vectors)
-        d = vectors.shape[1]
-        self.index = faiss.IndexHNSWFlat(d, m, metric)
-        self.index.hnsw.efConstruction = ef_construction
+        self._hnsw = faiss.IndexHNSWFlat(d, m, faiss_metric)
+        self._hnsw.hnsw.efConstruction = ef_construction
+        self.index = faiss.IndexIDMap(self._hnsw)
 
-        self.index.add(vectors)
+        n = vectors_np.shape[0]
+        if ids is not None:
+            ids_np = np.asarray(ids.cpu().numpy(), dtype=np.int64)
+        else:
+            ids_np = np.arange(n, dtype=np.int64)
 
-    def search(self, query: torch.Tensor, k: int, ef_search: int = 16) -> Tuple[torch.Tensor, torch.Tensor]:
+        self.index.add_with_ids(vectors_np, ids_np)
+
+    def add(
+        self,
+        vectors: torch.Tensor,
+        ids: Optional[torch.Tensor] = None,
+        num_threads: int = 0,
+    ):
         """
-        Find the k-nearest neighbors using the provided search arguments.
+        Add vectors to a built index.
 
-        :param query: The query vectors.
-        :param k: The number of neighbors to find.
-        :param ef_search: The number of neighbors to explore during search, optional. Default is 16.
-        :return: The indices and distances of the k-nearest neighbors.
+        Parameters
+        ----------
+        vectors : torch.Tensor, shape (n, d)
+        ids : torch.Tensor, optional
+            External int64 IDs.  If None, sequential IDs continuing from
+            the current ntotal are assigned.
+        num_threads : int
+            Ignored (HNSW insertion is sequential in Faiss).
+        """
+        assert vectors.ndim == 2
+
+        vectors_np = to_numpy(vectors)
+        n = vectors_np.shape[0]
+
+        if ids is not None:
+            ids_np = np.asarray(ids.cpu().numpy(), dtype=np.int64)
+        else:
+            start = self.index.ntotal
+            ids_np = np.arange(start, start + n, dtype=np.int64)
+
+        self.index.add_with_ids(vectors_np, ids_np)
+
+    def search(
+        self,
+        query: torch.Tensor,
+        k: int,
+        ef_search: int = 16,
+    ) -> SearchResult:
+        """
+        Find the k nearest neighbours of *query*.
+
+        Parameters
+        ----------
+        query : torch.Tensor, shape (nq, d)
+        k : int
+        ef_search : int
+            Dynamic candidate-list size during search.  Higher → better
+            recall, higher latency.  Set this to tune the recall/latency
+            tradeoff.
         """
         assert query.ndim == 2
         assert k > 0
 
-        self.index.hnsw.efSearch = ef_search
+        # Set efSearch on the underlying HNSW struct.
+        # After load(), self._hnsw may be None; recover from the ID-map wrapper.
+        hnsw_idx = self._hnsw if self._hnsw is not None else self.index.index
+        hnsw_idx.hnsw.efSearch = ef_search
 
-        query = to_numpy(query)
-        # print(ef_search)
+        query_np = to_numpy(query)
+
         timing_info = SearchTimingInfo()
-
         start = time.time()
-        distances, indices = self.index.search(query, k)
+        distances, indices = self.index.search(query_np, k)
         end = time.time()
 
         timing_info.total_time_ns = int((end - start) * 1e9)
 
-        search_result = SearchResult()
-        search_result.ids = to_torch(indices)
-        search_result.distances = to_torch(distances)
-        search_result.timing_info = timing_info
+        result = SearchResult()
+        result.ids = to_torch(indices)
+        result.distances = to_torch(distances)
+        result.timing_info = timing_info
+        return result
 
-        return search_result
-
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
 
     def save(self, filename: str):
-        """
-        Save the index to a file.
-
-        :param filename: The name of the file to save the index to.
-        """
+        """Save to file.  faiss.write_index handles IndexIDMap transparently."""
         faiss.write_index(self.index, str(filename))
 
     def load(self, filename: str):
         """
-        Load the index from a file.
-
-        :param filename: The name of the file to load the index from.
+        Load from file.  After loading self._hnsw is cleared; search()
+        recovers the reference via self.index.index automatically.
         """
         self.index = faiss.read_index(str(filename))
+        self._hnsw = None   # will be recovered lazily in search()
 
-    # Can't instantiate abstract class FaissHNSW with abstract method centroids
-    def centroids(self) -> Union[torch.Tensor, None]:
-        return super().centroids()
+    # ------------------------------------------------------------------
+    # Unsupported operation
+    # ------------------------------------------------------------------
 
-    def add(self, vectors: torch.Tensor, num_threads: int = 0):
-        """
-        Add vectors to the index.
-        HNSW does only support sequential adds.
-
-        :param vectors: The vectors to add.
-        """
-        assert vectors.ndim == 2
-
-        vectors = to_numpy(vectors)
-        self.index.add(vectors)
-
-    # Faiss HNSW does not support removal of vectors
     def remove(self, ids: torch.Tensor):
-        """
-        Remove vectors from the index.
-        """
-        # throw a runtime error
-        raise RuntimeError("Faiss HNSW does not support removal of vectors.")
+        """Not supported.  Use insert-only workloads with FaissHNSW."""
+        raise RuntimeError(
+            "FaissHNSW does not support vector removal.  "
+            "Use an insert-only workload (delete_ratio: 0.0) when benchmarking HNSW."
+        )
 
-    def index_state(self) -> str:
-        return ""
+    # ------------------------------------------------------------------
+    # Maintenance (no-op — matches FaissIVF behaviour)
+    # ------------------------------------------------------------------
 
     def maintenance(self):
-        pass
+        return None
+
+    # ------------------------------------------------------------------
+    # Metadata helpers required by IndexWrapper / WorkloadEvaluator
+    # ------------------------------------------------------------------
+
+    def n_total(self) -> int:
+        return self.index.ntotal
+
+    def d(self) -> int:
+        return self.index.d
+
+    def index_state(self) -> dict:
+        """
+        Return a dict of index metadata so WorkloadEvaluator can call
+        row.update(index.index_state()) safely.
+        Returns an empty dict (no partition structure to report).
+        """
+        return {}
+
+    def centroids(self) -> Union[torch.Tensor, None]:
+        """HNSW has no explicit centroids."""
+        return None
