@@ -87,7 +87,7 @@ plot:
   styles:
     HNSW-M32-ef64:       {color: "#2171b5", linestyle: "--", marker: "o"}
     Quake-InsertOnly:    {color: "#1f77b4", linestyle: "-",  marker: "o"}
-    Density70-InsertOnly:{color: "#17becf", linestyle: "-",  marker: "P"}
+    Density70-InsertOnly: {color: "#17becf", linestyle: "-",  marker: "P"}
 
 overwrite:
   workload: false
