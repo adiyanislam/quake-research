@@ -1,0 +1,85 @@
+# MSTuring10M APS sanity check — single seed 9299
+#
+# Purpose:
+#   Before running full tuning or 3-seed baselines on MSTuring10M,
+#   verify that Quake APS produces reasonable recall on this dataset.
+#   Lesson from GIST1M: APS can silently under-scan at high dimensionality.
+#   MSTuring10M is 100-dim (vs GIST 960-dim), so APS should behave well,
+#   but this smoke run confirms it before committing to longer runs.
+#
+# Three indexes:
+#   1. Quake-APS          — recall_target: 0.9  (APS enabled, standard config)
+#   2. Quake-nprobe40     — fixed nprobe: 40    (APS disabled, diagnostic reference)
+#   3. Faiss-IVF-nprobe20 — calibration reference (nprobe=20 from SIFT1M, untested on MSTuring)
+#
+# How to read the results:
+#   If Quake-APS recall ≈ Quake-nprobe40 recall ≈ Faiss-IVF recall (~0.90):
+#     APS works normally on MSTuring10M. Proceed to full tuning configs.
+#   If Quake-APS recall << Quake-nprobe40 recall:
+#     APS is miscalibrated. Run nprobe sweep and APS fraction tuning.
+#   If Quake-nprobe40 recall << Faiss-IVF-nprobe20 recall:
+#     Quake partition structure may be degraded; investigate nc or maintenance.
+#
+# Workload: standard 30/20/50 dynamic workload, seed 9299, one run only.
+# DO NOT compare these numbers against SIFT1M tables.
+mode: run
+
+dataset:
+  name: msturing10m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Quake with APS (recall_target) ───────────────────────────────────────────
+  - name: Quake-APS
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Quake with fixed nprobe (APS disabled) ────────────────────────────────────
+  # APS is bypassed when recall_target is absent from search_params.
+  # QuakeWrapper.search() defaults recall_target=-1, disabling APS.
+  - name: Quake-nprobe40
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, nprobe: 40}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Faiss-IVF calibration reference ──────────────────────────────────────────
+  # nprobe=20 transfers from SIFT1M; may not be optimal for MSTuring10M.
+  # Treat as orientation only; do not draw strong recall conclusions.
+  - name: Faiss-IVF-nprobe20
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 20}
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake-APS:          {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Quake-nprobe40:     {color: "#2171b5", linestyle: "--", marker: "s"}
+    Faiss-IVF-nprobe20: {color: "#d62728", linestyle: "--", marker: "X"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true
