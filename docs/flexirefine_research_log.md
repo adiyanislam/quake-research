@@ -528,6 +528,19 @@ full-refinement baseline on SIFT1M"
 **Caution:** Do not finalize this number until 3-seed confirmation completes. Use a
 conservative framing ("up to roughly X%") for advisor meetings before confirmation.
 
+### Advisor Framing Notes (2026-05-15)
+- **Primary claim:** Tunable maintenance control under maintenance-heavy workloads. Do
+  not claim end-to-end runtime improvement as the main contribution.
+- **§4 heading:** Rename to "Analysis of Budgeted Refinement" (or "Parameter Analysis").
+  Avoid "theoretical analysis."
+- **Contributions:** Reduce to 3. Combine implementation and evaluation into one
+  contribution. Keep the analysis contribution but tone down the wording. Remove
+  contribution mini-headers ("System Implementation," "Theoretical Analysis," etc.).
+- **Prose:** Remove em dashes throughout.
+- **Figures vs tables:** Database reviewers prefer figures. Prefer figures over tables
+  where the data permits.
+- **Page target:** Exactly 12 pages.
+
 ### Theory Section (§4.2, §4.3)
 - Add `D(p) = m_p / |p|` as a new staleness transform to §4.2
 - Add `D(p) = sqrt(m_p / |p|)` (γ=0.5 applied to density) as a derived form
@@ -567,9 +580,10 @@ conservative framing ("up to roughly X%") for advisor meetings before confirmati
 6. **Should the paper report mean±std or single-run tables for the advisor draft?**
    Recommendation: report single-run with a variance footnote for advisor draft; switch
    to mean±std for final tables.
-7. **What external baselines are needed?** The paper flags: Faiss-IVF, ScaNN, SPFresh/LIRE,
-   DeDrift, HNSW, DiskANN, SVS. At minimum: Faiss-IVF, LIRE, and one graph-based
-   index (HNSW or DiskANN) for a credible conference submission.
+7. **What external baselines are needed?** Minimum: Quake (done, standard dynamic
+   workload), Faiss-IVF (done, standard 30/20/50 workload, nprobe=20), HNSW (done,
+   insert-only ef44, see §11). ScaNN optional if time allows. LIRE skipped unless DZ
+   explicitly approves.
 8. **Is the `refinement_candidates_per_split` parameter worth keeping?** After the bug fix,
    per-split budgeting is a negative result. The parameter can be kept for completeness
    (it documents the negative result) but should not be presented as a tuning knob.
@@ -577,6 +591,13 @@ conservative framing ("up to roughly X%") for advisor meetings before confirmati
 ---
 
 ## 9. Next Experiments
+
+**Current priority order (updated 2026-05-15):**
+1. Additional datasets — equal priority to remaining baselines
+2. Confirm all three baselines across all three datasets (3 baselines × 3 datasets)
+3. Confirmation sweep (top FlexiRefine configs, 3 seeds) — unblocked after §10 fix
+4. Gamma fine sweep — deferred until confirmation sweep completes
+5. Random refinement — internal control only, not a paper priority (see note below)
 
 ### 1. Confirmation Sweep — Top Configs, 3 Seeds (Blocked)
 **Goal:** Compute mean ± std for Recall, Maintain, Total across seeds 9299, 42, 12345
@@ -596,21 +617,41 @@ for the 6 strongest configurations.
 **Goal:** Given that γ=0.5 appears robust, test γ ∈ {0.25, 0.5, 0.75, 1.0} with β
 fixed at 1.0 and density normalization to locate the optimal γ more precisely.
 
-**Status:** Not yet started; depends on confirmation sweep results.
+**Status:** Deferred until confirmation sweep completes.
 
 ### 3. External Baselines
-**Goal:** Add at minimum Faiss-IVF and LIRE/SPFresh-style comparison for a credible
-conference submission. DiskANN or HNSW for graph-based comparison.
 
-**Status:** Not yet started. Wrapper classes exist in `src/python/index_wrappers/` for
-Faiss-IVF, HNSW, DiskANN, ScaNN.
+**Status as of 2026-05-19:**
+- **Quake:** Done — standard 30/20/50 insert/delete/query dynamic workload.
+- **Faiss-IVF:** Done — standard 30/20/50 dynamic workload, nprobe=20.
+- **HNSW:** Done — insert-only/query-only workload, efSearch=44, 3 seeds confirmed.
+  See §11 for full results. Note: insert-only only; do not compare against 30/20/50 tables.
+- **LIRE:** Run experimentally; skipped from paper unless DZ explicitly approves.
+- **ScaNN:** Optional; include only if time permits after 3 datasets are covered.
+- **DiskANN/SVS/DeDrift:** Not planned at this stage.
 
-### 4. Deterministic K-means Seed (Optional Engineering)
+### 4. Additional Datasets (equal priority to baselines)
+
+Minimum target: all three confirmed baselines across all three datasets.
+
+- **SIFT1M (128-dim, L2):** Done — current main dataset for all experiments.
+- **GIST1M (960-dim, L2):** Next target.
+- **Third dataset:** TBD, target ~1--10M scale, likely a DEEP subset or T2I-style
+  dataset inspired by SIVF evaluations. Specific dataset to be confirmed with advisor.
+
+### 5. Deterministic K-means Seed (Optional Engineering)
 **Goal:** Expose a random seed parameter for refinement K-means in C++ to make
 refinement deterministic. Would eliminate run variance and simplify confirmation.
 
 **Status:** Not yet started. Would require modifying `refine_partitions()` in
 `partition_manager.cpp` and exposing a seed param to `MaintenancePolicyParams`.
+
+### Internal Control Note: Random Refinement
+
+Random refinement was run as an internal sanity check for score-based selection.
+Because the current paper direction prioritizes external baselines and multi-dataset
+coverage, we are not including random refinement in the main paper at this stage.
+Future revisions may revisit it if the scoring-policy contribution becomes central.
 
 ---
 
@@ -822,3 +863,25 @@ Before adding to the paper: confirm what claim is being made (search latency
 vs total runtime vs recall), note the insert-only limitation explicitly, and
 get advisor sign-off on whether HNSW belongs in the main evaluation or a
 separate "static-index baseline" subsection.
+
+---
+
+## 12. Advisor Notes — 2026-05-15
+
+Notes from advisor meeting. None of these require immediate paper edits; all are
+pending until explicitly requested.
+
+| # | Note | Action status |
+|---|------|---------------|
+| 1 | Primary claim is tunable maintenance control, not end-to-end runtime improvement | Pending paper edit |
+| 2 | Rename §4 to "Analysis of Budgeted Refinement" or "Parameter Analysis"; avoid "theoretical analysis" | Pending paper edit |
+| 3 | Reduce contributions to 3; combine implementation and evaluation; tone down analysis wording | Pending paper edit |
+| 4 | Remove contribution mini-headers ("System Implementation," "Theoretical Analysis," etc.) | Pending paper edit |
+| 5 | Remove em dashes from paper prose | Pending paper edit |
+| 6 | Database reviewers prefer figures over tables | Pending paper edit |
+| 7 | Target exactly 12 pages | Pending paper edit |
+| 8 | Minimum 3 baselines x 3 datasets required | In progress -- see §9 |
+| 9 | Minimum baselines: Quake, Faiss-IVF, HNSW; ScaNN optional | Quake/IVF/HNSW done -- see §9 item 3 |
+| 10 | Datasets beyond SIFT1M: GIST1M next; third dataset TBD ~1--10M scale | In progress -- see §9 item 4 |
+| 11 | Random refinement is lower priority than 3x3 baseline/dataset coverage | Internal control only -- not in paper plan |
+| 12 | LIRE skipped unless DZ explicitly approves | Skipped |
