@@ -1,0 +1,111 @@
+# GIST1M Baseline Comparison — Quake + FlexiRefine + Faiss-IVF, 3 seeds
+#
+# Purpose:
+#   Standard 30/20/50 dynamic workload on GIST1M (960-dim, L2) across three seeds.
+#   Mirrors sift1m_split240_baseline_comparison_faiss_3seed.yaml for cross-dataset
+#   comparison.
+#
+# Faiss-IVF nprobe:
+#   PLACEHOLDER — set to 40 pending gist1m_faiss_ivf_nprobe_tuning_seed9299 results.
+#   Update this value once tuning confirms the smallest nprobe >= 0.90 recall.
+#
+# Workload parameters:
+#   Same as SIFT1M standard config (update_batch_size=10000, 1000 ops).
+#   GIST1M is 960-dim so individual operations will be slower; total runtime
+#   will be higher than SIFT1M runs.
+mode: run
+
+dataset:
+  name: gist1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seeds: [9299, 42, 12345]
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Full-refinement baseline ────────────────────────────────────────────────
+  - name: Quake
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Best raw-mutation FlexiRefine config ────────────────────────────────────
+  - name: Score50-Raw-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 50
+      refinement_normalize_mutations: false
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Recommended density-normalized default ──────────────────────────────────
+  - name: Density70-Linear
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Lowest mean total time from 3-seed confirmation ─────────────────────────
+  - name: D70-B0.5-G0.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 0.5
+      refinement_score_gamma: 0.5
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+
+  # ── Faiss-IVF static baseline ───────────────────────────────────────────────
+  # PLACEHOLDER nprobe=40 — update after gist1m_faiss_ivf_nprobe_tuning_seed9299 results.
+  - name: Faiss-IVF
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 40}
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake:              {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Score50-Raw-Linear: {color: "#9467bd", linestyle: "-",  marker: "^"}
+    Density70-Linear:   {color: "#17becf", linestyle: "-",  marker: "s"}
+    D70-B0.5-G0.5:      {color: "#2ca02c", linestyle: "-",  marker: "D"}
+    Faiss-IVF:          {color: "#d62728", linestyle: "--", marker: "X"}
+
+overwrite:
+  workload: false
+  index: true
+  results: false

@@ -1,0 +1,104 @@
+# Faiss-HNSW efSearch tuning on GIST1M — INSERT-ONLY workload, single seed 9299
+#
+# Purpose:
+#   SIFT1M used efSearch=44 (recall 0.9049 mean, 3 seeds).  GIST1M is 960-dim;
+#   the graph structure is harder to traverse and likely needs higher efSearch
+#   to reach ~0.90 recall.  This config sweeps efSearch = {40, 64, 96, 128, 192}.
+#
+# Workload — INSERT-ONLY (delete_ratio: 0.0):
+#   HNSW does not support true vector removal.  Same insert-only constraint as
+#   sift1m_hnsw_tuning_seed9299.yaml.  DO NOT compare against 30/20/50 results.
+#
+# Pool arithmetic:
+#   GIST1M: 1M vectors, 100k initial → 900k insertable.
+#   insert_ratio=0.5, 1000 ops, update_batch_size=1000 → ~500k insertions.  ✓
+#
+# After this run, pick the lowest efSearch with mean recall >= 0.90 and create
+# gist1m_hnsw_insertonly_3seed.yaml.
+mode: run
+
+dataset:
+  name: gist1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.5
+  delete_ratio: 0.0
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 1000
+  query_batch_size: 100
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Faiss-HNSW efSearch sweep (M=32, efConstruction=200) ──────────────────
+  - name: HNSW-M32-ef40
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 40}
+
+  - name: HNSW-M32-ef64
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 64}
+
+  - name: HNSW-M32-ef96
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 96}
+
+  - name: HNSW-M32-ef128
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 128}
+
+  - name: HNSW-M32-ef192
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 192}
+
+  # ── Quake (full refinement) on insert-only workload ────────────────────────
+  - name: Quake-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Density70-Linear on insert-only workload ───────────────────────────────
+  - name: Density70-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    HNSW-M32-ef40:       {color: "#c6dbef", linestyle: "--", marker: "v"}
+    HNSW-M32-ef64:       {color: "#9ecae1", linestyle: "--", marker: "^"}
+    HNSW-M32-ef96:       {color: "#6baed6", linestyle: "--", marker: "o"}
+    HNSW-M32-ef128:      {color: "#2171b5", linestyle: "--", marker: "s"}
+    HNSW-M32-ef192:      {color: "#08306b", linestyle: "--", marker: "D"}
+    Quake-InsertOnly:    {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Density70-InsertOnly: {color: "#17becf", linestyle: "-",  marker: "P"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true

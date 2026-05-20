@@ -72,6 +72,37 @@ class Sift1m(Dataset):
     def load_ground_truth(self) -> Union[np.ndarray, torch.Tensor]:
         return ivecs_to_tensor(self.data_dir / "sift_groundtruth.ivecs")
 
+class Gist1m(Dataset):
+    url = "ftp://ftp.irisa.fr/local/texmex/corpus/gist.tar.gz"
+
+    def __init__(self, download_dir: Union[str, Path] = DEFAULT_DOWNLOAD_DIR):
+        self.download_dir = to_path(download_dir)
+        self.data_dir = self.download_dir / "gist"
+        self.downloaded = False
+        self.metric = "l2"
+
+    def is_downloaded(self) -> bool:
+        base  = self.data_dir / "gist_base.fvecs"
+        query = self.data_dir / "gist_query.fvecs"
+        gt    = self.data_dir / "gist_groundtruth.ivecs"
+        return base.exists() and query.exists() and gt.exists()
+
+    def download(self, overwrite: bool = False):
+        if not self.is_downloaded() or overwrite:
+            download_file = download_url(self.url, output_dir=self.download_dir, overwrite=overwrite)
+            extract_file(download_file, remove_input=False)
+            self.downloaded = True
+
+    def load_vectors(self) -> Union[np.ndarray, torch.Tensor]:
+        return fvecs_to_tensor(self.data_dir / "gist_base.fvecs")
+
+    def load_queries(self) -> Union[np.ndarray, torch.Tensor]:
+        return fvecs_to_tensor(self.data_dir / "gist_query.fvecs")
+
+    def load_ground_truth(self) -> Union[np.ndarray, torch.Tensor]:
+        return ivecs_to_tensor(self.data_dir / "gist_groundtruth.ivecs")
+
+
 class UniformDataset(Dataset):
     def __init__(self, num_vectors: int, dim: int, download_dir: Union[str, Path] = DEFAULT_DOWNLOAD_DIR):
         self.num_vectors = num_vectors
@@ -251,6 +282,8 @@ def load_dataset(
 ) -> List[Union[np.ndarray, torch.Tensor]]:
     if name.lower() == "sift1m":
         dataset = Sift1m(download_dir=download_dir)
+    elif name.lower() == "gist1m":
+        dataset = Gist1m(download_dir=download_dir)
     elif name.lower() == "uniform":
         dataset = UniformDataset(num_vectors=100000, dim=8, download_dir=download_dir)
     elif name.lower() == "msturing10m":
