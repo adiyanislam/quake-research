@@ -89,7 +89,9 @@ indexes:
       delete_threshold_ns: 50
 
   # ── Faiss-IVF static baseline ───────────────────────────────────────────────
-  # PLACEHOLDER nprobe=40 — update after gist1m_faiss_ivf_nprobe_tuning_seed9299 results.
+  # nprobe=40 confirmed from gist1m_faiss_ivf_nprobe_tuning_seed9299:
+  # recall_mean 0.9045, search_sum 15.6M ms.  nprobe=80 was stopped early
+  # (~52s/query, recall 0.968 — over-tuned).
   - name: Faiss-IVF
     index: FaissIVF
     build_params: {nc: 1000, metric: l2}

@@ -1,0 +1,90 @@
+# Quake APS tuning on GIST1M — second-stage config, single seed 9299
+#
+# SECOND STAGE — DO NOT RUN until gist1m_quake_nprobe_tuning_seed9299 confirms
+# that fixed nprobe achieves recall >= 0.90 on GIST1M.
+#
+# Purpose:
+#   If fixed-nprobe Quake shows good recall, the problem is APS miscalibration.
+#   This config tests whether APS can recover to recall >= 0.90 by increasing
+#   initial_search_fraction so APS sees more partitions before early-stopping.
+#
+# Key finding from wrapper inspection:
+#   QuakeWrapper.search() defaults initial_search_fraction=0.05 (5% = 50 partitions).
+#   The C++ default is 0.10 (10% = 100 partitions).
+#   The wrapper override to 0.05 likely makes GIST1M APS recall even worse.
+#   Values tested here: {0.2, 0.5, 1.0}
+#   - 0.2 = 200 partitions initially scanned before APS can stop
+#   - 0.5 = 500 partitions — APS has more information
+#   - 1.0 = 1000 partitions (all) — APS model runs but never stops early;
+#           equivalent to exhaustive scan with overhead; confirms if APS logic
+#           itself is broken or just the initial fraction is too small
+#
+# Workload: reuses seed 9299 GIST1M workload from nprobe tuning run.
+mode: run
+
+dataset:
+  name: gist1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Quake APS with increasing initial_search_fraction ────────────────────────
+  - name: Quake-APS-frac0.2
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9, initial_search_fraction: 0.2}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  - name: Quake-APS-frac0.5
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9, initial_search_fraction: 0.5}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  - name: Quake-APS-frac1.0
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9, initial_search_fraction: 1.0}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Quake-nprobe40 as fixed-nprobe reference (from stage 1) ─────────────────
+  - name: Quake-nprobe40
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, nprobe: 40}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake-APS-frac0.2: {color: "#74c476", linestyle: "-", marker: "v"}
+    Quake-APS-frac0.5: {color: "#238b45", linestyle: "-", marker: "o"}
+    Quake-APS-frac1.0: {color: "#00441b", linestyle: "-", marker: "s"}
+    Quake-nprobe40:    {color: "#2171b5", linestyle: "--", marker: "D"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true

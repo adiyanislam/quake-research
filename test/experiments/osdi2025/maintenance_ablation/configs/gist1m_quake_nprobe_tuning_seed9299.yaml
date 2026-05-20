@@ -1,0 +1,95 @@
+# Quake fixed-nprobe tuning on GIST1M — single seed 9299
+#
+# Purpose:
+#   The standard Quake config (recall_target: 0.9) produced recall ~0.50 on GIST1M.
+#   This config bypasses APS entirely by omitting recall_target, using fixed nprobe
+#   instead.  If Quake achieves recall >= 0.90 at some fixed nprobe, the problem
+#   is APS miscalibration on high-dimensional data, NOT the partition structure.
+#
+# APS bypass mechanism:
+#   QuakeWrapper.search() sets recall_target=-1 when the key is absent from
+#   search_params, which disables the APS early-termination path in
+#   query_coordinator.cpp.  The index scans exactly nprobe partitions.
+#
+# Sweep: nprobe = {20, 40, 80}
+#   - 20: 2% of 1000 partitions — likely low recall, establishes floor
+#   - 40: matches Faiss-IVF operating point (recall 0.904 on GIST1M)
+#   - 80: 8% of partitions — expected recall well above 0.90
+#   If 80 is still below 0.90, a follow-up config with nprobe={120, 150} will
+#   be created.  Do not run that until these results are reviewed.
+#
+# Faiss-IVF-nprobe40 is included as a calibration reference.
+#
+# What confirms APS is the problem:
+#   If Quake-nprobe40 recall is near Faiss-IVF-nprobe40 recall (~0.90), then
+#   fixed nprobe works and APS is miscalibrated for GIST1M.
+#   If Quake-nprobe80 recall is still well below 0.90, the partition structure
+#   itself is degraded and nc or maintenance params need investigation.
+#
+# Workload: same standard 30/20/50 dynamic workload as GIST1M IVF tuning.
+# DO NOT compare these numbers against SIFT1M tables.
+mode: run
+
+dataset:
+  name: gist1m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Quake fixed nprobe sweep (no APS) ────────────────────────────────────────
+  - name: Quake-nprobe20
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, nprobe: 20}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  - name: Quake-nprobe40
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, nprobe: 40}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  - name: Quake-nprobe80
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, nprobe: 80}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Faiss-IVF nprobe=40 calibration reference ─────────────────────────────
+  - name: Faiss-IVF-nprobe40
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 40}
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake-nprobe20:      {color: "#c6dbef", linestyle: "-", marker: "v"}
+    Quake-nprobe40:      {color: "#2171b5", linestyle: "-", marker: "o"}
+    Quake-nprobe80:      {color: "#08306b", linestyle: "-", marker: "s"}
+    Faiss-IVF-nprobe40:  {color: "#d62728", linestyle: "--", marker: "X"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true
