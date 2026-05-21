@@ -1,0 +1,85 @@
+# MSTuring10M Quake high-nprobe tuning — seed 9299
+#
+# Context:
+#   nprobe tuning run showed:
+#     Quake-nprobe160: recall 0.7267 (4739 partitions → only 3.4% scan)
+#     Faiss-IVF-nprobe160: recall 0.9032 (1000 partitions → 16% scan)
+#   Equivalent Quake scan fraction to Faiss-IVF: 0.16 × 4739 ≈ 758 partitions.
+#   nprobe=160 is not mis-tuned per se; the dynamic index grew much larger
+#   than SIFT1M (~4739 vs ~1500 partitions), so a proportionally higher nprobe
+#   is needed.
+#
+# Strategy:
+#   Sweep nprobe = {400, 640, 800}. 320 skipped — projects to ~0.82-0.85
+#   based on the recall curve from nprobe=160. 640 is the likely 0.90 crossing;
+#   800 is included to avoid a third tuning round if 640 falls short.
+#
+# No Faiss-IVF rows — nprobe=160 is confirmed for MSTuring10M.
+#
+# Workload reuse:
+#   Run with --output-dir pointing at the smoke results directory.
+#   overwrite.workload: false reuses existing runbook.json.
+#
+# DO NOT compare against SIFT1M tables.
+mode: run
+
+dataset:
+  name: msturing10m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Quake fixed nprobe sweep (APS disabled) ───────────────────────────────────
+  # Dynamic index grows to ~4700 partitions over 1000 ops.
+  # nprobe=400: ~8.4% scan at end  — likely ~0.82-0.86
+  # nprobe=640: ~13.5% scan at end — likely crosses 0.90
+  # nprobe=800: ~16.9% scan at end — matches Faiss-IVF 16% sweet spot
+  - name: Quake-nprobe400
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, nprobe: 400}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  - name: Quake-nprobe640
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, nprobe: 640}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  - name: Quake-nprobe800
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, nprobe: 800}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Quake-nprobe400: {color: "#9ecae1", linestyle: "-", marker: "v"}
+    Quake-nprobe640: {color: "#2171b5", linestyle: "-", marker: "o"}
+    Quake-nprobe800: {color: "#08306b", linestyle: "-", marker: "s"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true
