@@ -1,0 +1,78 @@
+# MSTuring10M nprobe tuning — seed 9299
+#
+# Context:
+#   Smoke run (msturing10m_quake_smoke_seed9299) showed:
+#     Faiss-IVF-nprobe20:  recall 0.5216
+#     Quake-nprobe40:      recall 0.5568
+#     Quake-APS:           recall 0.6943
+#   All nprobe values too low. APS is not broken (it beats fixed nprobe),
+#   but all configs need higher scan fraction.
+#
+# Strategy:
+#   Sweep nprobe = {80, 160} for Faiss-IVF and nprobe=160 for Quake fixed-nprobe.
+#   If 160 clears 0.90 for both, those are the operating points.
+#   If not, add 320 in a follow-up (nprobe=320 for Faiss-IVF is expensive: ~32%
+#   of 1000 static partitions; ~16x the cost of nprobe=20).
+#
+# Workload reuse:
+#   Run with --output-dir pointing at the smoke results directory to skip
+#   workload regeneration (~30-60 min saved).
+#   overwrite.workload: false ensures existing runbook.json is reused.
+#   New index subdirs will be written alongside the existing smoke results.
+#
+# DO NOT compare against SIFT1M tables.
+mode: run
+
+dataset:
+  name: msturing10m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Faiss-IVF nprobe sweep ────────────────────────────────────────────────────
+  - name: Faiss-IVF-nprobe80
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 80}
+
+  - name: Faiss-IVF-nprobe160
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 160}
+
+  # ── Quake fixed nprobe (APS disabled) ────────────────────────────────────────
+  # Smoke run showed Quake dynamic index grows to ~3000-4000 partitions.
+  # nprobe=160 / 3500 partitions ≈ 4.6% scan — closer to SIFT1M working point.
+  - name: Quake-nprobe160
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, nprobe: 160}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Faiss-IVF-nprobe80:  {color: "#9ecae1", linestyle: "--", marker: "v"}
+    Faiss-IVF-nprobe160: {color: "#2171b5", linestyle: "--", marker: "s"}
+    Quake-nprobe160:     {color: "#08306b", linestyle: "-",  marker: "o"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true
