@@ -103,6 +103,76 @@ class Gist1m(Dataset):
         return ivecs_to_tensor(self.data_dir / "gist_groundtruth.ivecs")
 
 
+class Deep10m(Dataset):
+    """
+    Yandex DEEP-1B dataset, 10M-vector subset.
+
+    Files expected under data/deep1b/:
+      base.1B.fbin.crop_nb_10000000  — 10M x 96 float32 base vectors
+                                        (range-downloaded from the 1B file;
+                                         header MUST be patched to n=10000000)
+      query.public.10K.fbin          — 10K x 96 float32 queries
+      deep-10M                       — GT: 10K x 100 neighbors (big-ann binary)
+
+    Download commands:
+      mkdir -p data/deep1b
+      wget -P data/deep1b \\
+        https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/query.public.10K.fbin
+      wget -O data/deep1b/deep-10M \\
+        https://dl.fbaipublicfiles.com/billion-scale-ann-benchmarks/GT_10M/deep-10M
+      curl -r 0-3840000007 \\
+           -o data/deep1b/base.1B.fbin.crop_nb_10000000 \\
+           https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/base.1B.fbin
+      # Fix header (n in first 4 bytes must be 10_000_000, not 1_000_000_000):
+      python3 -c "
+      import numpy as np
+      hdr = np.memmap('data/deep1b/base.1B.fbin.crop_nb_10000000',
+                      shape=2, dtype='uint32', mode='r+')
+      assert int(hdr[1]) == 96
+      hdr[0] = 10_000_000
+      print('Header fixed: n=%d d=%d' % (hdr[0], hdr[1]))
+      "
+    """
+
+    def __init__(self, download_dir: Union[str, Path] = DEFAULT_DOWNLOAD_DIR):
+        self.download_dir = to_path(download_dir)
+        self.data_dir = self.download_dir / "deep1b"
+        self.downloaded = False
+        self.metric = "l2"
+
+    def is_downloaded(self) -> bool:
+        base  = self.data_dir / "base.1B.fbin.crop_nb_10000000"
+        query = self.data_dir / "query.public.10K.fbin"
+        gt    = self.data_dir / "deep-10M"
+        return base.exists() and query.exists() and gt.exists()
+
+    def download(self, overwrite: bool = False):
+        pass  # manual download; see docstring for commands
+
+    def load_vectors(self) -> Union[np.ndarray, torch.Tensor]:
+        fname = self.data_dir / "base.1B.fbin.crop_nb_10000000"
+        n, d = map(int, np.fromfile(fname, dtype="uint32", count=2))
+        return torch.from_numpy(
+            np.fromfile(fname, dtype=np.float32, offset=8).reshape((n, d))
+        )
+
+    def load_queries(self) -> Union[np.ndarray, torch.Tensor]:
+        fname = self.data_dir / "query.public.10K.fbin"
+        n, d = map(int, np.fromfile(fname, dtype="uint32", count=2))
+        return torch.from_numpy(
+            np.fromfile(fname, dtype=np.float32, offset=8).reshape((n, d))
+        )
+
+    def load_ground_truth(self) -> Union[np.ndarray, torch.Tensor]:
+        fname = self.data_dir / "deep-10M"
+        n, d = map(int, np.fromfile(fname, dtype="uint32", count=2))
+        assert os.stat(fname).st_size == 8 + n * d * (4 + 4)
+        f = open(fname, "rb")
+        f.seek(4 + 4)
+        ids = np.fromfile(f, dtype="int32", count=n * d).reshape(n, d)
+        return torch.from_numpy(ids).long()
+
+
 class UniformDataset(Dataset):
     def __init__(self, num_vectors: int, dim: int, download_dir: Union[str, Path] = DEFAULT_DOWNLOAD_DIR):
         self.num_vectors = num_vectors
@@ -284,6 +354,8 @@ def load_dataset(
         dataset = Sift1m(download_dir=download_dir)
     elif name.lower() == "gist1m":
         dataset = Gist1m(download_dir=download_dir)
+    elif name.lower() == "deep10m":
+        dataset = Deep10m(download_dir=download_dir)
     elif name.lower() == "uniform":
         dataset = UniformDataset(num_vectors=100000, dim=8, download_dir=download_dir)
     elif name.lower() == "msturing10m":
