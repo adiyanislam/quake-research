@@ -1,0 +1,51 @@
+# DEEP10M Faiss-IVF nprobe=160 tuning — seed 9299
+#
+# Context:
+#   Smoke run (deep10m_quake_smoke_seed9299) showed:
+#     Faiss-IVF-nprobe20: recall 0.7204  (under-tuned)
+#     Quake-APS:          recall 0.9207  (on target)
+#   nprobe=20 is too low for DEEP10M. Starting at nprobe=160 (8x jump).
+#   If recall >= 0.90: tune downward with 80 or 120.
+#   If recall < 0.90:  tune upward with 320.
+#
+# Workload reuse:
+#   Run with --output-dir pointing at the smoke results directory to skip
+#   workload regeneration. overwrite.workload: false reuses existing runbook.json.
+#
+# DO NOT compare against SIFT1M tables.
+mode: run
+
+dataset:
+  name: deep10m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.3
+  delete_ratio: 0.2
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 10000
+  query_batch_size: 1000
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  - name: Faiss-IVF-nprobe160
+    index: FaissIVF
+    build_params: {nc: 1000, metric: l2}
+    search_params: {k: 10, nprobe: 160}
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    Faiss-IVF-nprobe160: {color: "#2171b5", linestyle: "--", marker: "s"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true
