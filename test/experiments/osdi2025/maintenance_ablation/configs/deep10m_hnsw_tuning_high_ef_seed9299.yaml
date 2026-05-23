@@ -1,0 +1,62 @@
+# Faiss-HNSW High-ef Tuning — DEEP10M, INSERT-ONLY, seed 9299
+#
+# Purpose:
+#   Follow-up to deep10m_hnsw_tuning_seed9299, which showed ef64 only
+#   reaches recall 0.8297. Sweeping ef128 and ef256 to find the lowest
+#   efSearch that clears ~0.90 recall on DEEP10M.
+#
+#   Recall curve from initial sweep:
+#     ef32: 0.7354  ef44: 0.7827  ef64: 0.8297
+#   Projection: ef128 ≈ 0.87-0.88, ef256 ≈ 0.91-0.94
+#
+# No Quake/Density rows — those already exist in the shared output directory
+# from the initial tuning run. Only HNSW variants are added here.
+#
+# Workload reuse:
+#   Run with --output-dir pointing at the initial tuning results directory.
+#   overwrite.workload: false reuses the existing insert-only runbook.json.
+#
+# Workload — INSERT-ONLY (delete_ratio: 0.0):
+#   DO NOT compare against 30/20/50 delete-workload results.
+mode: run
+
+dataset:
+  name: deep10m
+  metric: l2
+  path: data
+
+workload_generator:
+  seed: 9299
+  insert_ratio: 0.5
+  delete_ratio: 0.0
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 1000
+  query_batch_size: 100
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  - name: HNSW-M32-ef128
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 128}
+
+  - name: HNSW-M32-ef256
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 256}
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    HNSW-M32-ef128: {color: "#2171b5", linestyle: "--", marker: "o"}
+    HNSW-M32-ef256: {color: "#08306b", linestyle: "--", marker: "s"}
+
+overwrite:
+  workload: false
+  index: true
+  results: true
