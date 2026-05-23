@@ -571,7 +571,14 @@ conservative framing ("up to roughly X%") for advisor meetings before confirmati
 ## 8. Open Questions
 
 1. **Do the density + γ=0.5 results hold across seeds?** (Directly addressed by §9 item 1)
-2. **Do results hold on larger workloads (SIFT10M, MSTuring)?** Not yet tested.
+2. **Do results hold on non-SIFT datasets?** Partially confirmed. DEEP10M (Yandex
+   DEEP-1B 10M subset, 96-dim float32, L2) was completed as the second main dataset
+   (see §13). The SIFT1M policy-class pattern holds: score-based refinement reduces
+   maintenance by 34--43% with FlexiRefine variants staying near the 0.90 recall
+   target. Individual FlexiRefine mean recall (0.890--0.899) does not uniformly clear
+   0.90 across seeds due to higher variance than SIFT1M. GIST1M was attempted but
+   paused due to Quake APS instability at 960-dim. MSTuring10M was attempted but
+   paused due to Quake requiring very high nprobe (>800) to approach 0.90 recall.
 3. **Should γ=0.5 be the new default?** Pending confirmation.
 4. **Should β be 0.5 or 1.0?** Within run variance; needs confirmation to resolve.
 5. **Should K-means in refinement be deterministically seeded?** Would eliminate a
@@ -592,9 +599,9 @@ conservative framing ("up to roughly X%") for advisor meetings before confirmati
 
 ## 9. Next Experiments
 
-**Current priority order (updated 2026-05-15):**
-1. Additional datasets — equal priority to remaining baselines
-2. Confirm all three baselines across all three datasets (3 baselines × 3 datasets)
+**Current priority order (updated 2026-05-22):**
+1. HNSW on DEEP10M (insert-only, efSearch tuning) — closes the DEEP10M column
+2. Third dataset — SIFT10M if scale needed, or advisor-specified dataset
 3. Confirmation sweep (top FlexiRefine configs, 3 seeds) — unblocked after §10 fix
 4. Gamma fine sweep — deferred until confirmation sweep completes
 5. Random refinement — internal control only, not a paper priority (see note below)
@@ -621,23 +628,31 @@ fixed at 1.0 and density normalization to locate the optimal γ more precisely.
 
 ### 3. External Baselines
 
-**Status as of 2026-05-19:**
-- **Quake:** Done — standard 30/20/50 insert/delete/query dynamic workload.
-- **Faiss-IVF:** Done — standard 30/20/50 dynamic workload, nprobe=20.
-- **HNSW:** Done — insert-only/query-only workload, efSearch=44, 3 seeds confirmed.
-  See §11 for full results. Note: insert-only only; do not compare against 30/20/50 tables.
+**Status as of 2026-05-22:**
+- **Quake:** Done — standard 30/20/50 insert/delete/query dynamic workload on SIFT1M
+  and DEEP10M.
+- **Faiss-IVF:** Done — standard 30/20/50 dynamic workload. nprobe=20 on SIFT1M,
+  nprobe=80 on DEEP10M.
+- **HNSW:** Done on SIFT1M (insert-only, efSearch=44, 3 seeds). DEEP10M pending.
+  See §11 for SIFT1M results. Note: insert-only only; do not compare against
+  30/20/50 tables.
 - **LIRE:** Run experimentally; skipped from paper unless DZ explicitly approves.
 - **ScaNN:** Optional; include only if time permits after 3 datasets are covered.
 - **DiskANN/SVS/DeDrift:** Not planned at this stage.
 
-### 4. Additional Datasets (equal priority to baselines)
+### 4. Additional Datasets
 
 Minimum target: all three confirmed baselines across all three datasets.
 
-- **SIFT1M (128-dim, L2):** Done — current main dataset for all experiments.
-- **GIST1M (960-dim, L2):** Next target.
-- **Third dataset:** TBD, target ~1--10M scale, likely a DEEP subset or T2I-style
-  dataset inspired by SIVF evaluations. Specific dataset to be confirmed with advisor.
+- **SIFT1M (128-dim, L2):** Done — main dataset for all experiments.
+- **DEEP10M (96-dim, L2):** Done as second main dataset — see §13.
+- **GIST1M (960-dim, L2):** Paused — Quake APS recall unstable at 960-dim.
+  Results available but not included in paper unless resolved.
+- **MSTuring10M (100-dim, L2):** Paused — required nprobe > 800 for recall 0.88;
+  Quake partition count grew to ~9k partitions under dynamic workload. Not included
+  in paper at this stage.
+- **Third dataset:** SIFT10M if additional scale evidence is needed, or an
+  advisor-specified dataset. Confirm with advisor before proceeding.
 
 ### 5. Deterministic K-means Seed (Optional Engineering)
 **Goal:** Expose a random seed parameter for refinement K-means in C++ to make
@@ -885,3 +900,83 @@ pending until explicitly requested.
 | 10 | Datasets beyond SIFT1M: GIST1M next; third dataset TBD ~1--10M scale | In progress -- see §9 item 4 |
 | 11 | Random refinement is lower priority than 3x3 baseline/dataset coverage | Internal control only -- not in paper plan |
 | 12 | LIRE skipped unless DZ explicitly approves | Skipped |
+
+---
+
+## 13. DEEP10M Baseline Results -- 3-Seed Confirmed
+
+**Branch:** `flexirefine-gist1m-experiments`
+**Date:** 2026-05-22
+**Status:** CONFIRMED (3 seeds). DEEP10M is the second main dataset.
+
+### Dataset
+
+Yandex DEEP-1B 10M-vector subset. 96-dim float32, L2 distance. Downloaded as
+a range-request crop of the 1B file; header patched to n=10,000,000.
+Data path: `data/deep1b/`. Loader: `Deep10m` class added to `ann_datasets.py`.
+
+### Tuning History
+
+**Smoke run (seed 9299):** `deep10m_quake_smoke_seed9299.yaml`
+- Quake-APS: recall 0.9207 -- APS works normally on DEEP10M (96-dim is well-behaved)
+- Quake-nprobe40: recall 0.8851 -- reasonable floor
+- Faiss-IVF-nprobe20: recall 0.7204 -- too low; nprobe=20 does not transfer from SIFT1M
+
+**Faiss-IVF nprobe tuning (seed 9299):**
+- nprobe=160: above 0.90 (overshot)
+- nprobe=80: recall 0.9105 -- selected operating point
+
+**Final Faiss-IVF setting:** nprobe=80 for DEEP10M.
+(SIFT1M used nprobe=20; DEEP vectors require higher scan fraction for same recall.)
+
+### 3-Seed Results (seeds 9299, 42, 12345)
+
+Config: `deep10m_split240_baseline_comparison_faiss_3seed.yaml`
+
+| Config | Search ms | Insert ms | Delete ms | Maintain ms | Total ms | Recall | Partitions |
+|---|---|---|---|---|---|---|---|
+| Quake | 337887 ± 39633 | 24022 ± 4292 | 34163 ± 4695 | 121194 ± 33806 | 517265 ± 81019 | 0.9194 ± 0.0188 | 3548 ± 576 |
+| Score50-Raw-Linear | 402384 ± 56775 | 16816 ± 2378 | 28914 ± 3847 | 69102 ± 23855 | 517215 ± 86003 | 0.8901 ± 0.0426 | 1656 ± 319 |
+| Density70-Linear | 390537 ± 64919 | 17251 ± 2366 | 29576 ± 3843 | 77734 ± 29632 | 515099 ± 100215 | 0.8965 ± 0.0381 | 1728 ± 261 |
+| D70-B0.5-G0.5 | 381648 ± 59305 | 17976 ± 2521 | 29954 ± 4129 | 79703 ± 22731 | 509281 ± 88279 | 0.8991 ± 0.0375 | 1810 ± 293 |
+| Faiss-IVF (nprobe=80) | 1996891 ± 1256480 | 8964 ± 482 | 1030 ± 60 | 0 | 2006885 ± 1257012 | 0.9086 ± 0.0331 | 1000 ± 0 |
+
+### Interpretation
+
+**Quake-APS** reaches 0.9194 mean recall on DEEP10M. APS is correctly calibrated at
+96-dim; no parameter tuning was needed beyond the standard dynamic workload settings.
+
+**FlexiRefine** reduces maintenance by 34--43% versus full Quake (maintenance: 69k--80k ms
+vs Quake's 121k ms). Mean recall across the three FlexiRefine variants ranges from
+0.890 to 0.899 -- near the 0.90 target but not uniformly above it. Recall standard
+deviations (0.038--0.043) are higher than on SIFT1M (0.015--0.022), indicating more
+workload variance on DEEP10M. The policy-class pattern is consistent with SIFT1M:
+score-based selective refinement reduces maintenance while staying near the recall
+target. Do not claim "above 0.90" for individual FlexiRefine variants on DEEP10M.
+
+**Faiss-IVF** reaches 0.9086 mean recall but at 3.9× Quake's total runtime (2007k vs
+517k ms). The high search variance (std 1257k ms) reflects recall degradation at late
+operations as static centroids become stale under the 30%/20% insert/delete workload.
+
+**Key difference from SIFT1M:** DEEP10M Quake grows to ~3548 partitions vs SIFT1M's
+~1500--1700, reflecting different cluster structure in the deep learning feature vectors.
+This does not affect the main claims but means SIFT1M and DEEP10M Quake configs are
+not directly comparable on partition count.
+
+### Claim Status
+
+**CONFIRMED at policy-class level** (3 seeds):
+- Score-based selective refinement reduces maintenance by 34--43% on DEEP10M.
+- Recall stays near the 0.90 target (mean 0.890--0.899) but is not uniformly above it.
+- This is directionally consistent with SIFT1M results.
+
+**Not claimed:** "FlexiRefine preserves recall above 0.90 on DEEP10M." The mean does
+not support this for any of the three variants at n=3 seeds.
+
+### Paper Status
+
+DEEP10M is confirmed as the second main dataset. Results should be reported alongside
+SIFT1M with the careful recall phrasing above. Before adding to the paper, note:
+- Recall variance is higher than SIFT1M; report mean ± std, not point estimates.
+- Use "near the 0.90 target" rather than "above 0.90" for FlexiRefine on DEEP10M.
+- HNSW on DEEP10M is still pending (insert-only efSearch tuning needed).
