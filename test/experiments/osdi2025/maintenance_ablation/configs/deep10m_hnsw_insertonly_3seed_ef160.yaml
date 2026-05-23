@@ -1,0 +1,90 @@
+# Faiss-HNSW INSERT-ONLY Baseline — DEEP10M, 3-seed confirmation, ef160
+#
+# Purpose:
+#   Compare Faiss-HNSW against Quake and Density70-Linear on a DEEP10M
+#   insert-only + query workload across three independent seeds.
+#   Results reported as mean ± std across seeds {9299, 42, 12345}.
+#
+# efSearch selection:
+#   ef160 selected from fine tuning run (deep10m_hnsw_tuning_fine_ef_seed9299):
+#     ef128: recall 0.8947 (just below target)
+#     ef160: recall 0.9108 (selected — lowest efSearch clearly above 0.90)
+#     ef192: recall 0.9226 (above target but more expensive)
+#
+# Workload — INSERT-ONLY (delete_ratio: 0.0):
+#   FaissHNSW does not support true vector removal. Using insert-only workload
+#   to avoid silently incorrect results.
+#   DO NOT compare these mean/std numbers against 30/20/50 delete-workload tables.
+#
+# Disk note:
+#   Multi-seed mode writes per-seed workload files (base_vectors.pt ~3.58 GB
+#   per seed) under seed_9299/, seed_42/, seed_12345/ subdirectories.
+#   Total workload data: ~10-11 GB. Ensure sufficient free space before running.
+#
+# Pool arithmetic:
+#   DEEP10M: 10M base vectors, 100k initial → 9.9M insertable.
+#   insert_ratio=0.5, 1000 ops, update_batch_size=1000
+#   → ~500 insert ops × 1000 = 500k insertions  (<< 9.9M available)  ✓
+mode: run
+
+dataset:
+  name: deep10m
+  metric: l2
+  path: data
+
+workload_generator:
+  seeds: [9299, 42, 12345]
+  insert_ratio: 0.5
+  delete_ratio: 0.0
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 1000
+  query_batch_size: 100
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Faiss-HNSW ef160 (M=32, efConstruction=200) ───────────────────────────
+  - name: HNSW-M32-ef160
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 160}
+
+  # ── Quake full refinement on insert-only workload ──────────────────────────
+  - name: Quake-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Density70-Linear on insert-only workload ───────────────────────────────
+  - name: Density70-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    HNSW-M32-ef160:      {color: "#2171b5", linestyle: "--", marker: "o"}
+    Quake-InsertOnly:    {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Density70-InsertOnly: {color: "#17becf", linestyle: "-",  marker: "P"}
+
+overwrite:
+  workload: false
+  index: true
+  results: false
