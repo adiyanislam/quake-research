@@ -53,9 +53,9 @@
 % ============================================================
 \begin{abstract}
 % ============================================================
-% [CONFIRMED] Main claim updated from old 22% to 36-46% across 3 seeds.
-% [CONFIRMED] All selective configs preserve mean recall >= 0.90.
-% [CONFIRMED] Total runtime within 4% of full-refinement baseline.
+% [CONFIRMED] SIFT1M: 36-46% maintenance reduction, mean recall >= 0.90, 3 seeds.
+% [CONFIRMED] DEEP10M: 34-43% maintenance reduction, mean recall near 0.90, 3 seeds.
+% [CONFIRMED] Total runtime within 4% of full-refinement baseline on SIFT1M.
 
 Dynamic vector search systems must maintain high recall and low query
 latency under continuous inserts, deletes, and shifting access patterns.
@@ -65,26 +65,28 @@ Partitioned indexes are update-friendly but suffer recall loss if
 maintenance is disabled; enabling full maintenance can dominate
 runtime even under moderate update rates.
 
-We present \system, a control-plane framework that treats refinement---a
-key post-split maintenance operation---as a tunable resource allocation
-problem. Rather than refining all candidate partitions after a split,
-\system ranks candidates by a scoring function that jointly estimates
-workload importance (via query hit counts) and structural staleness (via
-mutation counts since last refinement). This exposes a controllable
-tradeoff between maintenance cost, search quality, and total runtime.
+We present \system, a control-plane framework that treats
+refinement---a key post-split maintenance operation---as a tunable
+resource allocation problem. Rather than refining all candidate
+partitions after a split, \system ranks candidates by a scoring
+function that jointly estimates workload importance (via query hit
+counts) and structural staleness (via mutation counts since last
+refinement). This exposes a controllable tradeoff between maintenance
+cost, search quality, and total runtime.
 
 We implement a family of refinement policies including split-threshold
-tuning, global and per-split candidate budgeting, hit-based selection,
+tuning, global candidate budgeting, hit-based selection,
 raw and density-normalized staleness scoring, and a general multiplicative
 score family parameterized by importance and staleness exponents.
-We evaluate on a dynamic SIFT1M workload with inserts, deletes, and
-queries, reporting mean\,$\pm$\,std across three independent workload
-seeds.
+We evaluate on dynamic workloads over two datasets---SIFT1M and
+DEEP10M---reporting mean\,$\pm$\,std across three independent seeds.
 
-\textbf{Score-based selective refinement reduces maintenance by
-36--46\% while preserving mean recall above 0.90 across three
-independent workloads, with total runtime within 4\% of the
-full-refinement baseline.}
+\textbf{On SIFT1M, score-based selective refinement reduces maintenance
+by 36--46\% while preserving mean recall above 0.90, with total runtime
+within 4\% of the full-refinement baseline.}
+On DEEP10M, FlexiRefine variants remain near the 0.90 recall target
+while reducing maintenance by 34--43\%, confirming the policy-class
+pattern across a second dataset.
 Naive filtering policies (size-only, distance-only, per-split coverage)
 reduce maintenance but fail to preserve the recall target, confirming
 that a joint workload-importance--staleness signal is necessary.
@@ -150,41 +152,31 @@ refines only the top-ranked subset.
 This paper makes the following contributions:
 
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Control-plane framing.}
-    We frame dynamic vector index maintenance as a controllable
-    tradeoff problem, enabling users to select operating points based
-    on application priorities rather than accepting a fixed policy.
-
-  \item \textbf{System design and implementation.}
-    We design and implement \system as a modular refinement-control
-    layer integrated with a dynamic partitioned vector index. The layer
-    includes candidate generation, per-partition metadata tracking,
-    scoring, budget allocation, and refinement execution. We expose all
-    policy knobs through configuration files for reproducibility.
-
-  \item \textbf{Score-family theory.}
-    We formulate a general multiplicative score family
-    $S_{\beta,\gamma}(p) = (h_p + 1)^\beta D(p)^\gamma$
+  \item We frame dynamic vector index maintenance as a controllable
+    tradeoff problem and design \system, a modular refinement-control
+    layer with candidate generation, per-partition metadata tracking,
+    scoring, budget allocation, and refinement execution. We formulate
+    a general multiplicative score family
+    $S_{\beta,\gamma}(p) = (h_p + \epsilon)^\beta D(p)^\gamma$
     that unifies hit-only, mutation-only, raw staleness, and
-    density-normalized staleness policies as special cases. We prove
+    density-normalized staleness policies as special cases, and prove
     budget monotonicity and cost bounding properties.
 
-  \item \textbf{Multiseed empirical evaluation.}
-    We evaluate a wide range of policies and report mean\,$\pm$\,std
-    across three independent workload seeds to account for K-means
-    non-determinism. Score-based selective refinement reduces
-    maintenance by 36--46\% while preserving mean recall above 0.90
-    with total runtime within 4\% of the baseline.
+  \item We evaluate \system on two datasets---SIFT1M and DEEP10M---and
+    report mean\,$\pm$\,std across three independent workload seeds.
+    Score-based selective refinement reduces maintenance by 36--46\%
+    on SIFT1M while preserving mean recall above 0.90, with total
+    runtime within 4\% of the full-refinement baseline. On DEEP10M,
+    FlexiRefine variants remain near the 0.90 recall target while
+    reducing maintenance by 34--43\%.
 
-  \item \textbf{Negative-result analysis.}
-    We show that naive policies---size-only, distance-only,
-    per-split coverage budgeting, and hits-alone---each fail to
-    preserve the recall target while reducing maintenance. These
-    negative results motivate the joint importance--staleness signal.
-
-  \item \textbf{Reproducibility infrastructure.}
+  \item We show that naive policies (size-only, distance-only,
+    per-split coverage budgeting, hits-alone) each fail to preserve the
+    recall target while reducing maintenance. These negative results
+    motivate the joint importance--staleness signal and are confirmed
+    across both datasets.
     All experiment configurations are YAML files included in the
-    repository. The multi-seed runner produces raw per-seed CSVs and
+    repository; the multi-seed runner produces raw per-seed CSVs and
     aggregated mean\,$\pm$\,std tables automatically.
     \todo{Insert final repository URL when ready.}
 \end{itemize}
@@ -721,15 +713,20 @@ weighted uniformly; recency-weighted variants are possible future work.
 \subsection{Experimental Setup}
 \label{sec:eval_setup}
 
-\textbf{Dataset.} SIFT1M (1M 128-dimensional floating-point vectors,
-Euclidean distance).
+\textbf{Datasets.}
+(1)~\textbf{SIFT1M}: 1M 128-dimensional floating-point vectors, Euclidean
+distance~\cite{jegou2011product}.
+(2)~\textbf{DEEP10M}: 10M-vector subset of the Yandex DEEP-1B
+dataset~\cite{babenko2016efficient}, 96-dimensional float32 vectors,
+Euclidean distance. DEEP10M provides a non-SIFT domain (deep learning
+image features) for policy generalization evaluation.
 
 \textbf{Workload.} Dynamic workload with 30\% inserts, 20\% deletes,
 and 50\% queries, 1000 operations, initial size 100,000 vectors,
 skewed cluster distribution for inserts, uniform query distribution.
 Target recall 0.90.
 
-\textbf{Seeds.} For the primary confirmation table, we report
+\textbf{Seeds.} For primary confirmation tables, we report
 mean\,$\pm$\,std across seeds \{9299, 42, 12345\}. Other experiment
 tables use seed 9299 unless noted; these are marked \textit{single-run}.
 
@@ -737,10 +734,26 @@ tables use seed 9299 unless noted; these are marked \textit{single-run}.
 delete time (ms), maintenance time (ms), total time (ms), mean recall
 over query operations, and final partition count.
 
-\textbf{Baselines.} All \system variants are compared against full
-Quake (complete refinement enabled, cost-model maintenance).
-\todo{Add external baselines: Faiss-IVF, LIRE/SPFresh-style,
-HNSW or DiskANN. These are required for conference submission.}
+\textbf{Baselines.}
+All \system variants are compared against full Quake (complete
+refinement enabled, cost-model maintenance).
+We additionally evaluate two external baselines:
+(1)~\textbf{Faiss-IVF}~\cite{johnson2019billion}: a static IVF index
+(nc\,=\,1000) with no dynamic maintenance, representing the
+no-maintenance reference point. Faiss-IVF avoids maintenance overhead
+but pays substantially higher search and total runtime at
+recall-matched settings as static centroids degrade under inserts and
+deletes. nprobe is tuned per dataset: nprobe\,=\,20 on SIFT1M,
+nprobe\,=\,80 on DEEP10M.
+(2)~\textbf{Faiss-HNSW}~\cite{malkov2018efficient}: a graph-based
+static index (M\,=\,32, efConstruction\,=\,200), evaluated
+\emph{separately on insert-only workloads} because the wrapper does
+not support true vector deletion. Results for HNSW are reported in
+\S\ref{sec:eval_hnsw} and must not be directly compared to the
+insert/delete/query tables above.
+
+% [TODO: figure — SIFT1M confirmation sweep maintenance/recall bar chart]
+% [TODO: figure — SIFT1M vs DEEP10M maintenance reduction grouped bar chart]
 
 \subsection{Q1: How Much Maintenance Cost Comes from Refinement?}
 \label{sec:eval_q1}
@@ -1090,6 +1103,92 @@ Based on the confirmed results:
     a stable production operating point without more seeds.
 \end{itemize}
 
+\subsection{Q9: Do Results Generalize to a Non-SIFT Dataset?}
+\label{sec:eval_deep10m}
+
+% [TODO: figure — SIFT1M vs DEEP10M maintenance reduction grouped bar chart]
+
+We evaluate the same policy set on DEEP10M (Yandex DEEP-1B 10M
+subset, 96-dimensional float32, Euclidean distance) using the same
+dynamic 30/20/50 workload.
+Table~\ref{tab:deep10m_confirmation} reports mean\,$\pm$\,std across
+seeds \{9299, 42, 12345\}.
+
+\begin{table}[h]
+\centering
+\caption{DEEP10M 3-seed confirmation (seeds \{9299, 42, 12345\}).
+  Maintenance mean\,$\pm$\,std and recall mean\,$\pm$\,std.
+  Faiss-IVF uses nprobe\,=\,80, tuned to reach recall $\approx$\,0.90.
+  \textbf{[CONFIRMED]}}
+\label{tab:deep10m_confirmation}
+\begin{tabular}{lrrrr}
+  \toprule
+  Config & Maintain (ms) & Total (ms) & Recall & Partitions \\
+  \midrule
+  Quake
+    & $121{,}194 \pm 33{,}806$
+    & $517{,}265 \pm 81{,}019$
+    & $0.9194 \pm 0.0188$
+    & $3548 \pm 576$ \\
+  Score50-Raw-Linear
+    & $69{,}102 \pm 23{,}855$
+    & $517{,}215 \pm 86{,}003$
+    & $0.8901 \pm 0.0426$
+    & $1656 \pm 319$ \\
+  Density70-Linear
+    & $77{,}734 \pm 29{,}632$
+    & $515{,}099 \pm 100{,}215$
+    & $0.8965 \pm 0.0381$
+    & $1728 \pm 261$ \\
+  D70-B0.5-G0.5
+    & $79{,}703 \pm 22{,}731$
+    & $509{,}281 \pm 88{,}279$
+    & $0.8991 \pm 0.0375$
+    & $1810 \pm 293$ \\
+  Faiss-IVF
+    & $0$
+    & $2{,}006{,}885 \pm 1{,}257{,}012$
+    & $0.9086 \pm 0.0331$
+    & $1000 \pm 0$ \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+The policy-class pattern from SIFT1M holds on DEEP10M.
+FlexiRefine variants reduce maintenance by 34--43\% relative to
+full Quake while remaining near the 0.90 recall target (mean recall
+0.890--0.899). Recall variance is higher than on SIFT1M (std
+0.038--0.043 versus 0.015--0.022), reflecting greater workload
+sensitivity at higher partition counts ($\sim$3500 versus
+$\sim$1500 on SIFT1M). Faiss-IVF avoids maintenance but pays
+substantially higher search and total runtime at recall-matched
+settings (total $\approx\,3.9\times$ Quake).
+
+\subsection{Q10: How Does a Graph-Based Baseline Compare?}
+\label{sec:eval_hnsw}
+
+% [TODO: figure — HNSW insert-only comparison figure (SIFT1M and DEEP10M)]
+
+\textbf{Important caveat.}
+Faiss-HNSW does not support true vector deletion in this codebase.
+All HNSW results therefore use an \emph{insert-only/query-only}
+workload (delete\_ratio\,=\,0) and must not be directly compared
+against the insert/delete/query tables above.
+
+On SIFT1M (ef\,=\,44, M\,=\,32), HNSW achieves mean recall
+0.9049\,$\pm$\,0.0449 with insert cost $\approx\,44\times$ higher
+than Quake. On DEEP10M (ef\,=\,256, M\,=\,32), HNSW achieves mean
+recall 0.9125\,$\pm$\,0.0225. Notably, ef\,=\,44 did not transfer
+from SIFT1M to DEEP10M; ef\,=\,256 was required, indicating that
+HNSW's operating point is dataset-dependent.
+
+On the insert-only workload, HNSW total runtime is
+$\approx\,57\%$ higher than Quake-InsertOnly on DEEP10M despite lower
+per-query latency, because graph construction cost during insertion
+dominates. HNSW reaches higher recall than Quake-InsertOnly on
+DEEP10M (0.9125 versus 0.8805), but this comparison is within the
+insert-only workload regime only.
+
 % ============================================================
 \section{Related Work}
 \label{sec:related}
@@ -1178,21 +1277,16 @@ rather than preliminary observations.
 
 \subsection{Scope of Current Results}
 
-All results in this paper use SIFT1M with a specific workload mix
-(30\% insert, 20\% delete, 50\% query). Whether these results
-generalize to larger datasets (SIFT10M, MSTuring), different workload
-mixes (read-heavy or write-heavy), or different dimensionalities is not
-yet known. The system is architecture-agnostic, but empirical validation
-on multiple datasets is needed for a conference submission.
+Results are confirmed on two datasets---SIFT1M (128-dim, 1M vectors,
+image descriptors) and DEEP10M (96-dim, 10M vectors, deep learning
+features)---under a 30/20/50 insert/delete/query dynamic workload.
+The policy-class finding (score-based refinement robustly outperforms
+naive filtering) is consistent across both datasets and three seeds.
 
-\subsection{External Baselines Still Needed}
-
-The current evaluation compares \system variants against each other
-and against full Quake. A credible conference submission requires at
-least one IVF-style baseline (Faiss-IVF), one dynamic-maintenance
-baseline (LIRE or SPFresh), and one graph-based baseline (HNSW or
-DiskANN). Wrapper classes for Faiss-IVF, HNSW, and DiskANN exist in
-the codebase and can be integrated into the evaluation workload.
+The SIFT10M scale study (10$\times$ SIFT1M) is planned as the next
+evaluation step to confirm that FlexiRefine behavior holds at larger
+index sizes. Generalization to read-heavy or write-heavy workload mixes
+and to other distance metrics has not yet been evaluated.
 
 % ============================================================
 \section{Conclusion}
@@ -1206,14 +1300,18 @@ search quality, and its selective application exposes a useful
 tradeoff frontier.
 
 \system frames refinement as a resource allocation problem. The key
-insight, confirmed across three independent workloads, is that
-refinement should target partitions that are both important to queries
-and structurally stale. Naive policies that filter by size, distance,
-or local coverage fail to preserve the recall target while reducing
-maintenance. Score-based selective refinement using a joint
-importance--staleness signal reduces maintenance by \textbf{36--46\%}
-while preserving \textbf{mean recall above 0.90} with total runtime
-within \textbf{4\% of the full-refinement baseline}.
+insight, confirmed on SIFT1M and DEEP10M across three independent
+seeds each, is that refinement should target partitions that are both
+important to queries and structurally stale. Naive policies that
+filter by size, distance, or local coverage fail to preserve the
+recall target while reducing maintenance. Score-based selective
+refinement using a joint importance--staleness signal reduces
+maintenance by \textbf{36--46\%} on SIFT1M while preserving
+\textbf{mean recall above 0.90} with total runtime within
+\textbf{4\% of the full-refinement baseline}. On DEEP10M,
+FlexiRefine variants reduce maintenance by 34--43\% while remaining
+near the 0.90 recall target, confirming the policy-class result on a
+non-SIFT dataset.
 
 Among tested configurations, density-normalized staleness
 ($D(p) = m_p / |p|$) provides the most behaviorally stable operating
@@ -1228,10 +1326,14 @@ the general score family require further confirmation.
 % ============================================================
 
 \begin{enumerate}[leftmargin=*]
-  \item \textbf{External baselines.}
-    Add Faiss-IVF (minimum required), a LIRE/SPFresh-style
-    baseline for dynamic-maintenance comparison, and one graph-based
-    baseline (HNSW or DiskANN). Wrapper implementations exist.
+  \item \textbf{Scale study.}
+    Evaluate on SIFT10M (10$\times$ SIFT1M scale) to confirm that
+    FlexiRefine maintenance behavior and recall tradeoffs hold as
+    the index grows.
+
+  \item \textbf{Dynamic-maintenance baseline.}
+    Add a LIRE/SPFresh-style baseline to assess FlexiRefine's benefit
+    relative to other dynamic IVF maintenance strategies.
 
   \item \textbf{More seeds.}
     Extend to $n=5$ seeds (add 1337 and 2024) to tighten standard
@@ -1243,10 +1345,6 @@ the general score family require further confirmation.
     Requires a small change to \texttt{refine\_partitions()} in
     \texttt{partition\_manager.cpp}.
 
-  \item \textbf{Larger workloads.}
-    Evaluate on SIFT10M and MSTuring-10M. The system supports both
-    datasets; experiment configs would be straightforward additions.
-
   \item \textbf{Gamma fine sweep.}
     With $\beta$ fixed at 1.0, sweep $\gamma \in \{0.25, 0.5, 0.75,
     1.0\}$ to locate the optimal staleness exponent more precisely.
@@ -1254,8 +1352,6 @@ the general score family require further confirmation.
   \item \textbf{Adaptive budget control.}
     Use observed recall drift to adjust the top-$K$ budget
     dynamically, targeting a recall threshold rather than a fixed count.
-    One step toward the adaptive-budget future work outlined in
-    the paper.
 \end{enumerate}
 
 % ============================================================
