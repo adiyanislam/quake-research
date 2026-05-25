@@ -1,0 +1,84 @@
+# Faiss-HNSW INSERT-ONLY Baseline — DEEP10M, 3-seed confirmation, ef256
+#
+# Purpose:
+#   The ef160 3-seed run returned mean recall 0.8790 ± 0.0277 — below the
+#   0.90 target across seeds. ef256 returned recall 0.9384 on seed 9299
+#   (high-ef tuning run), making it the next candidate.
+#   This config confirms ef256 across all three seeds.
+#
+# Workload reuse:
+#   Run with --output-dir pointing at the ef160 results directory.
+#   overwrite.workload: false reuses the existing per-seed workload files
+#   (seed_9299/, seed_42/, seed_12345/) — no re-download or regeneration.
+#   overwrite.results: false skips Quake-InsertOnly and Density70-InsertOnly
+#   which already have results.csv files in that directory.
+#   Only HNSW-M32-ef256 will be evaluated fresh.
+#
+# Workload — INSERT-ONLY (delete_ratio: 0.0):
+#   FaissHNSW does not support true vector removal.
+#   DO NOT compare against 30/20/50 delete-workload tables.
+mode: run
+
+dataset:
+  name: deep10m
+  metric: l2
+  path: data
+
+workload_generator:
+  seeds: [9299, 42, 12345]
+  insert_ratio: 0.5
+  delete_ratio: 0.0
+  query_ratio: 0.5
+  number_of_operations: 1000
+  initial_size: 100000
+  cluster_size: 1000
+  update_batch_size: 1000
+  query_batch_size: 100
+  cluster_sample_distribution: skewed
+  query_cluster_sample_distribution: uniform
+
+indexes:
+  # ── Faiss-HNSW ef256 (M=32, efConstruction=200) ───────────────────────────
+  - name: HNSW-M32-ef256
+    index: FaissHNSW
+    build_params: {m: 32, ef_construction: 200, metric: l2}
+    search_params: {k: 10, ef_search: 256}
+
+  # ── Quake full refinement on insert-only workload ──────────────────────────
+  # overwrite.results: false — existing results.csv skipped, not re-run.
+  - name: Quake-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 50
+      delete_threshold_ns: 50
+
+  # ── Density70-Linear on insert-only workload ───────────────────────────────
+  # overwrite.results: false — existing results.csv skipped, not re-run.
+  - name: Density70-InsertOnly
+    index: Quake
+    build_params: {nc: 1000, num_workers: 0}
+    search_params: {k: 10, recall_target: 0.9}
+    maintenance_params:
+      split_threshold_ns: 240
+      delete_threshold_ns: 50
+      refinement_radius: 50
+      refinement_iterations: 2
+      refinement_top_k_score: 70
+      refinement_normalize_mutations: true
+      refinement_score_beta: 1.0
+      refinement_score_gamma: 1.0
+
+plot:
+  x_axis: operation_number
+  metrics: [latency_ms, recall]
+  styles:
+    HNSW-M32-ef256:      {color: "#08306b", linestyle: "--", marker: "s"}
+    Quake-InsertOnly:    {color: "#1f77b4", linestyle: "-",  marker: "o"}
+    Density70-InsertOnly: {color: "#17becf", linestyle: "-",  marker: "P"}
+
+overwrite:
+  workload: false
+  index: true
+  results: false
