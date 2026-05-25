@@ -579,6 +579,7 @@ conservative framing ("up to roughly X%") for advisor meetings before confirmati
    0.90 across seeds due to higher variance than SIFT1M. GIST1M was attempted but
    paused due to Quake APS instability at 960-dim. MSTuring10M was attempted but
    paused due to Quake requiring very high nprobe (>800) to approach 0.90 recall.
+   HNSW insert-only baseline also confirmed on DEEP10M (ef256, 3 seeds) — see §14.
 3. **Should γ=0.5 be the new default?** Pending confirmation.
 4. **Should β be 0.5 or 1.0?** Within run variance; needs confirmation to resolve.
 5. **Should K-means in refinement be deterministically seeded?** Would eliminate a
@@ -599,12 +600,11 @@ conservative framing ("up to roughly X%") for advisor meetings before confirmati
 
 ## 9. Next Experiments
 
-**Current priority order (updated 2026-05-22):**
-1. HNSW on DEEP10M (insert-only, efSearch tuning) — closes the DEEP10M column
-2. Third dataset — SIFT10M if scale needed, or advisor-specified dataset
-3. Confirmation sweep (top FlexiRefine configs, 3 seeds) — unblocked after §10 fix
-4. Gamma fine sweep — deferred until confirmation sweep completes
-5. Random refinement — internal control only, not a paper priority (see note below)
+**Current priority order (updated 2026-05-24):**
+1. Third dataset — SIFT10M scale test or advisor-specified dataset (confirm with advisor)
+2. Confirmation sweep (top FlexiRefine configs, 3 seeds) — unblocked after §10 fix
+3. Gamma fine sweep — deferred until confirmation sweep completes
+4. Random refinement — internal control only, not a paper priority (see note below)
 
 ### 1. Confirmation Sweep — Top Configs, 3 Seeds (Blocked)
 **Goal:** Compute mean ± std for Recall, Maintain, Total across seeds 9299, 42, 12345
@@ -633,9 +633,9 @@ fixed at 1.0 and density normalization to locate the optimal γ more precisely.
   and DEEP10M.
 - **Faiss-IVF:** Done — standard 30/20/50 dynamic workload. nprobe=20 on SIFT1M,
   nprobe=80 on DEEP10M.
-- **HNSW:** Done on SIFT1M (insert-only, efSearch=44, 3 seeds). DEEP10M pending.
-  See §11 for SIFT1M results. Note: insert-only only; do not compare against
-  30/20/50 tables.
+- **HNSW:** Done on SIFT1M (insert-only, efSearch=44, 3 seeds) and DEEP10M
+  (insert-only, efSearch=256, 3 seeds). See §11 for SIFT1M results, §14 for
+  DEEP10M results. Note: insert-only only; do not compare against 30/20/50 tables.
 - **LIRE:** Run experimentally; skipped from paper unless DZ explicitly approves.
 - **ScaNN:** Optional; include only if time permits after 3 datasets are covered.
 - **DiskANN/SVS/DeDrift:** Not planned at this stage.
@@ -645,7 +645,8 @@ fixed at 1.0 and density normalization to locate the optimal γ more precisely.
 Minimum target: all three confirmed baselines across all three datasets.
 
 - **SIFT1M (128-dim, L2):** Done — main dataset for all experiments.
-- **DEEP10M (96-dim, L2):** Done as second main dataset — see §13.
+- **DEEP10M (96-dim, L2):** Done as second main dataset — Quake/FlexiRefine/IVF
+  (§13) and HNSW insert-only (§14) confirmed.
 - **GIST1M (960-dim, L2):** Paused — Quake APS recall unstable at 960-dim.
   Results available but not included in paper unless resolved.
 - **MSTuring10M (100-dim, L2):** Paused — required nprobe > 800 for recall 0.88;
@@ -980,3 +981,93 @@ SIFT1M with the careful recall phrasing above. Before adding to the paper, note:
 - Recall variance is higher than SIFT1M; report mean ± std, not point estimates.
 - Use "near the 0.90 target" rather than "above 0.90" for FlexiRefine on DEEP10M.
 - HNSW on DEEP10M is still pending (insert-only efSearch tuning needed).
+
+---
+
+## 14. DEEP10M HNSW Insert-Only Results -- 3-Seed Confirmed
+
+**Branch:** `flexirefine-gist1m-experiments`
+**Date:** 2026-05-24
+**Status:** CONFIRMED (3 seeds, ef256). Insert-only baseline only.
+
+### Tuning History (seed 9299 only)
+
+**Coarse sweep** (`deep10m_hnsw_tuning_seed9299.yaml`):
+
+| efSearch | Recall (seed 9299) |
+|---|---|
+| 32 | 0.7354 |
+| 44 | 0.7827 |
+| 64 | 0.8297 |
+
+All three under-tuned. Recall curve much flatter than SIFT1M (which crossed 0.90 at ef44).
+
+**High-ef sweep** (`deep10m_hnsw_tuning_high_ef_seed9299.yaml`):
+
+| efSearch | Recall (seed 9299) |
+|---|---|
+| 128 | 0.8947 |
+| 256 | 0.9384 |
+
+ef128 just below target; ef256 above. Fine sweep to bracket.
+
+**Fine sweep** (`deep10m_hnsw_tuning_fine_ef_seed9299.yaml`):
+
+| efSearch | Recall (seed 9299) |
+|---|---|
+| 160 | 0.9108 |
+| 192 | 0.9226 |
+
+ef160 clears 0.90 on seed 9299.
+
+**Takeaway from single-seed tuning:** ef160 is the lowest efSearch crossing 0.90 on
+seed 9299. ef256 is a conservative choice with more margin.
+
+### 3-Seed ef160 (not selected)
+
+`deep10m_hnsw_insertonly_3seed_ef160.yaml`:
+- HNSW-M32-ef160: recall **0.8790 ± 0.0277** — below 0.90 target across seeds.
+  Seed variance (std 0.028) pulled mean below target despite passing on seed 9299.
+  Not selected as final operating point.
+
+### 3-Seed ef256 (selected) [CONFIRMED]
+
+`deep10m_hnsw_insertonly_3seed_ef256.yaml`, run with `--output-dir` reusing ef160 workloads:
+
+| Config | Search ms | Insert ms | Maintain ms | Total ms | Recall | Partitions |
+|---|---|---|---|---|---|---|
+| HNSW-M32-ef256 | 25953 ± 3200 | 95435 ± 14124 | 0 | 121388 ± 11280 | 0.9125 ± 0.0225 | 0 |
+| Quake-InsertOnly | 21998 ± 530 | 2921 ± 190 | 52099 ± 1796 | 77019 ± 1638 | 0.8805 ± 0.0117 | 2110 ± 174 |
+| Density70-InsertOnly | 26825 ± 957 | 2458 ± 154 | 45297 ± 7506 | 74580 ± 8155 | 0.8614 ± 0.0116 | 1372 ± 110 |
+
+### Interpretation
+
+**efSearch selection:** ef256 is the final DEEP10M HNSW operating point. ef160 was
+expected to be sufficient based on the single-seed tuning result (0.9108), but 3-seed
+mean recall dropped to 0.8790 due to higher cross-seed variance on DEEP10M. ef256
+confirms mean recall 0.9125 ± 0.0225 across all three seeds.
+
+**Insert cost dominance:** HNSW insert time (~95k ms) dominates its total runtime.
+HNSW total runtime (121k ms) is approximately 57% higher than Quake-InsertOnly (77k ms).
+
+**Recall comparison:** HNSW ef256 reaches higher recall than Quake-InsertOnly
+(0.9125 vs 0.8805), but at ~57% higher total runtime due to the graph construction
+cost on insert.
+
+**Insert-only limitation:** These results are insert-only workload only. Do not
+compare directly against the 30/20/50 delete-workload tables in §13. The comparison
+is fair within the insert-only context but reflects a different workload regime.
+
+### Claim Status
+
+**CONFIRMED (3 seeds, ef256):** HNSW insert-only baseline complete on DEEP10M.
+ef256 clears mean recall 0.90 across three seeds.
+
+### Paper Status
+
+DEEP10M HNSW baseline is complete and should appear alongside SIFT1M HNSW results
+(§11) in a graph/static-index baseline subsection or footnote. Key notes for the paper:
+- Report ef256 as the operating point; note the multi-step tuning required
+  (ef44 from SIFT1M did not transfer; ef256 needed for DEEP10M)
+- Label all HNSW results as insert-only with an explicit caveat
+- Do not present HNSW total runtime as competitive with Quake on insert+query cost
